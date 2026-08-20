@@ -406,6 +406,35 @@ func cmdAdopt(name string) {
 	fmt.Printf("adopted    %s (now managed, %s)\n", name, scope)
 }
 
+// cmdUninstall removes everything skillsync put on this machine: managed
+// skills in every scope it installed into, the background job, the Claude Code
+// hooks, and its own state directory. Skills the user installed by hand are
+// untouched — they were never in the install record.
+func cmdUninstall(keepSkills bool) {
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Println("not initialized; nothing to remove")
+		return
+	}
+	state := loadState()
+	if !keepSkills {
+		removed := uninstallUnwanted(cfg, state.Installed, nil, "")
+		for root, installed := range state.ProjectInstalled {
+			removed += uninstallUnwanted(cfg, installed, nil, root)
+		}
+		fmt.Printf("removed %d managed skill(s)\n", removed)
+	} else {
+		fmt.Println("left installed skills in place (--keep-skills)")
+	}
+	cmdDaemon("uninstall")
+	cmdHook("uninstall")
+	if err := os.RemoveAll(stateDir()); err != nil {
+		fatal("remove %s: %v", stateDir(), err)
+	}
+	fmt.Printf("removed %s\n", stateDir())
+	fmt.Println("done — delete the skillsync binary itself to finish")
+}
+
 func cmdList() {
 	_, state, resolved := mustResolve()
 	for _, sk := range resolved {

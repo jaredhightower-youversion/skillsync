@@ -17,6 +17,21 @@ import (
 
 func claudeSettingsPath() string { return filepath.Join(homeDir(), ".claude", "settings.json") }
 
+// readClaudeSettings returns the parsed settings file, or an empty map when it
+// does not exist. A malformed file is fatal rather than silently replaced —
+// it holds the user's own configuration.
+func readClaudeSettings() (map[string]any, bool) {
+	settings := map[string]any{}
+	b, err := os.ReadFile(claudeSettingsPath())
+	if err != nil {
+		return settings, false
+	}
+	if err := json.Unmarshal(b, &settings); err != nil {
+		fatal("parse %s: %v — fix it or use `skillsync hook print` and edit by hand", claudeSettingsPath(), err)
+	}
+	return settings, true
+}
+
 func hookEntries() (sessionStart, postToolUse map[string]any) {
 	bin := binaryPath()
 	// Quote the path: install locations like ~/Library/Application Support
@@ -48,13 +63,43 @@ func cmdHook(sub string) {
 			},
 		}, "", "  ")
 		fmt.Println(string(out))
-	case "install":
-		settings := map[string]any{}
-		if b, err := os.ReadFile(claudeSettingsPath()); err == nil {
-			if err := json.Unmarshal(b, &settings); err != nil {
-				fatal("parse %s: %v — fix it or use `skillsync hook print` and merge by hand", claudeSettingsPath(), err)
+	case "uninstall":
+		settings, ok := readClaudeSettings()
+		if !ok {
+			fmt.Println("no Claude Code settings file; nothing to remove")
+			return
+		}
+		hooks, _ := settings["hooks"].(map[string]any)
+		removed := 0
+		for event, list := range hooks {
+			entries, _ := list.([]any)
+			kept := make([]any, 0, len(entries))
+			for _, e := range entries {
+				if hasSkillsyncHook([]any{e}) {
+					removed++
+					continue
+				}
+				kept = append(kept, e)
+			}
+			if len(kept) == 0 {
+				delete(hooks, event)
+			} else {
+				hooks[event] = kept
 			}
 		}
+		if removed == 0 {
+			fmt.Println("no skillsync hooks found")
+			return
+		}
+		if len(hooks) == 0 {
+			delete(settings, "hooks")
+		}
+		if err := saveJSON(claudeSettingsPath(), settings); err != nil {
+			fatal("write %s: %v", claudeSettingsPath(), err)
+		}
+		fmt.Printf("removed %d hook(s) from %s\n", removed, claudeSettingsPath())
+	case "install":
+		settings, _ := readClaudeSettings()
 		hooks, _ := settings["hooks"].(map[string]any)
 		if hooks == nil {
 			hooks = map[string]any{}

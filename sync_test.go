@@ -340,3 +340,33 @@ func TestYAMLScalarEscaping(t *testing.T) {
 		t.Fatalf("description not YAML-escaped:\n%s", mdc)
 	}
 }
+
+func TestHookUninstallPreservesOtherHooks(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// A user hook that must survive, alongside ours.
+	saveJSON(claudeSettingsPath(), map[string]any{
+		"model": "opus",
+		"hooks": map[string]any{
+			"SessionStart": []any{map[string]any{
+				"hooks": []any{map[string]any{"type": "command", "command": "echo mine"}},
+			}},
+		},
+	})
+	cmdHook("install")
+	cmdHook("uninstall")
+	settings, ok := readClaudeSettings()
+	if !ok {
+		t.Fatal("settings file gone")
+	}
+	if settings["model"] != "opus" {
+		t.Fatal("unrelated settings lost")
+	}
+	b, _ := json.Marshal(settings)
+	if strings.Contains(string(b), "skillsync") {
+		t.Fatalf("skillsync hooks not removed: %s", b)
+	}
+	if !strings.Contains(string(b), "echo mine") {
+		t.Fatalf("user hook lost: %s", b)
+	}
+}

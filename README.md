@@ -67,6 +67,7 @@ skills:
 | `skillsync stats` | Local skill-usage counts |
 | `skillsync daemon status` | Background job status |
 | `skillsync hook print` | Hook JSON for hand-managed Claude Code settings |
+| `skillsync uninstall` | Remove skillsync and everything it installed |
 
 ## Configuration
 
@@ -108,6 +109,47 @@ What to do instead:
 - **Skills you installed by hand** (before skillsync, or via `npx skills add`) are safe:
   same content gets adopted into management; different content is never overwritten unless
   you explicitly run `skillsync adopt <skill>`.
+
+## Removing skills, or removing skillsync
+
+### One skill, just for you
+
+```sh
+skillsync remove code-review   # unsubscribe
+skillsync sync                 # uninstalls it from your machine
+```
+
+Your first `remove` turns "everything in the sources" into an explicit list minus that skill,
+so later syncs won't quietly reinstall it. Re-subscribe with `skillsync add code-review`.
+
+### One skill, for the whole team
+
+Delete it from the skill repo (or drop it from a project's `skillsync.yaml`) and merge.
+Every machine uninstalls it on the next sync.
+
+### Everything skillsync installed
+
+```sh
+skillsync uninstall                  # skills, background job, hooks, and ~/.skillsync
+skillsync uninstall --keep-skills    # same, but leave the skill files on disk
+```
+
+This removes only skills that skillsync installed — anything you put in
+`~/.claude/skills/` yourself is left alone. Then delete the binary:
+
+```sh
+sudo rm /usr/local/bin/skillsync
+```
+
+### Removing pieces individually
+
+```sh
+skillsync daemon uninstall   # stop background syncing, keep everything else
+skillsync hook uninstall     # remove the Claude Code hooks, keep the skills
+```
+
+`hook uninstall` only strips skillsync's own entries from `~/.claude/settings.json`; your
+other hooks and settings stay as they are.
 
 ## Behavior notes
 

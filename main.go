@@ -139,7 +139,8 @@ func usage() {
   skillsync remove <skill>        unsubscribe a skill globally
   skillsync adopt <skill>         replace an unmanaged local skill with the managed version
   skillsync daemon install|uninstall|status   manage the background sync job
-  skillsync hook install|print    Claude Code hooks (session-start sync + usage tracking)
+  skillsync hook install|uninstall|print      Claude Code hooks (session-start sync + tracking)
+  skillsync uninstall [--keep-skills]         remove skillsync and everything it installed
   skillsync track <skill>         record a usage event (called by hooks; --stdin reads hook JSON)
   skillsync stats                 show local skill-usage counts
 `)
@@ -171,6 +172,8 @@ func main() {
 		cmdSubscribe(arg(2), false)
 	case "adopt":
 		cmdAdopt(arg(2))
+	case "uninstall":
+		cmdUninstall(len(os.Args) > 2 && os.Args[2] == "--keep-skills")
 	case "daemon":
 		cmdDaemon(arg(2))
 	case "hook":
