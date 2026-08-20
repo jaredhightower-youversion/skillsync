@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 // Skill is a directory in a source repo containing SKILL.md.
@@ -52,9 +54,45 @@ func resolveSkills(cfg *Config) ([]Skill, error) {
 	return resolved, nil
 }
 
+// validateSource rejects source definitions that would turn a config file into
+// code execution or a path escape. Config is hand-edited and team-distributed,
+// so it is a trust boundary: a name becomes a directory under ~/.skillsync/repos
+// and a URL becomes a git argument, where `ext::`/`ftp::` transports run shell
+// commands and a leading `-` is parsed as an option.
+func validateSource(src Source) error {
+	if src.Name == "" || src.Name != filepath.Base(src.Name) || strings.HasPrefix(src.Name, ".") {
+		return fmt.Errorf("invalid source name %q: must be a single path element", src.Name)
+	}
+	if src.URL == "" || strings.HasPrefix(src.URL, "-") {
+		return fmt.Errorf("invalid source url %q", src.URL)
+	}
+	if strings.Contains(src.URL, "::") {
+		return fmt.Errorf("source url %q uses a git transport helper; only https/ssh/git/file are allowed", src.URL)
+	}
+	switch {
+	case strings.HasPrefix(src.URL, "https://"),
+		strings.HasPrefix(src.URL, "ssh://"),
+		strings.HasPrefix(src.URL, "git://"),
+		strings.HasPrefix(src.URL, "file://"),
+		scpLikeURL.MatchString(src.URL):
+	default:
+		return fmt.Errorf("source url %q must be https://, ssh://, git://, file:// or user@host:path", src.URL)
+	}
+	if strings.HasPrefix(src.Pin, "-") {
+		return fmt.Errorf("invalid pin %q", src.Pin)
+	}
+	return nil
+}
+
+// scpLikeURL matches git's user@host:path form.
+var scpLikeURL = regexp.MustCompile(`^[A-Za-z0-9._~-]+@[A-Za-z0-9._-]+:[^\s]+$`)
+
 // fetchSource clones on first sync, pulls afterwards, then honors a pin
 // (SPEC §6). Shells out to system git so existing credentials/SSO work.
 func fetchSource(src Source) (string, error) {
+	if err := validateSource(src); err != nil {
+		return "", err
+	}
 	repoPath := filepath.Join(reposDir(), src.Name)
 	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err == nil {
 		if out, err := gitCmd(repoPath, "fetch", "--tags", "origin"); err != nil {
@@ -64,7 +102,7 @@ func fetchSource(src Source) (string, error) {
 		if err := os.MkdirAll(reposDir(), 0o755); err != nil {
 			return "", err
 		}
-		if out, err := gitCmd("", "clone", src.URL, repoPath); err != nil {
+		if out, err := gitCmd("", "clone", "--", src.URL, repoPath); err != nil {
 			return "", fmt.Errorf("git clone: %v: %s", err, out)
 		}
 	}
@@ -84,7 +122,7 @@ func fetchSource(src Source) (string, error) {
 		}
 		target = strings.TrimPrefix(strings.TrimSpace(head), "refs/remotes/")
 	}
-	if out, err := gitCmd(repoPath, "checkout", "--detach", "--force", target); err != nil {
+	if out, err := gitCmd(repoPath, "checkout", "--detach", "--force", target, "--"); err != nil {
 		return "", fmt.Errorf("git checkout %s: %v: %s", target, err, out)
 	}
 	return repoPath, nil
@@ -134,6 +172,8 @@ func discoverSkills(repoPath string) ([]Skill, error) {
 }
 
 func cmdSync() {
+	unlock := lockSync()
+	defer unlock()
 	cfg, state, resolved := mustResolve()
 	syncGlobal(cfg, state, resolved)
 	if root := findProjectRoot(mustGetwd()); root != "" {
@@ -147,6 +187,8 @@ func cmdSync() {
 }
 
 func cmdSyncAll() {
+	unlock := lockSync()
+	defer unlock()
 	cfg, state, resolved := mustResolve()
 	syncGlobal(cfg, state, resolved)
 	for _, root := range state.Projects {
@@ -157,6 +199,30 @@ func cmdSyncAll() {
 	}
 	mustSaveState(state)
 	flushMetrics(cfg)
+}
+
+// lockSync serializes syncs. The daemon timer and the session-start hook both
+// fire sync-all, and two runs sharing one clone can hash a half-checked-out
+// tree or lose a state.json write. A second run exits rather than queueing:
+// the next tick is at most 15 minutes away.
+func lockSync() func() {
+	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
+		fatal("create state dir: %v", err)
+	}
+	path := filepath.Join(stateDir(), "sync.lock")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		fatal("open lock: %v", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		fmt.Println("another sync is already running; skipping")
+		f.Close()
+		os.Exit(0)
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}
 }
 
 func mustResolve() (*Config, *State, []Skill) {
@@ -192,17 +258,44 @@ func mustSaveState(state *State) {
 // enabled adapter's global target.
 func syncGlobal(cfg *Config, state *State, resolved []Skill) {
 	changed := 0
+	wanted := map[string]bool{}
 	for _, sk := range resolved {
-		if len(cfg.GlobalSkills) > 0 && !slices.Contains(cfg.GlobalSkills, sk.Name) {
+		if !cfg.subscribed(sk.Name) {
 			continue
 		}
+		wanted[sk.Name] = true
 		verb := applyAdapters(cfg, sk, "", state.Installed)
 		if verb != "" {
 			fmt.Printf("%-10s %s\n", verb, sk.Name)
 			changed++
 		}
 	}
+	changed += uninstallUnwanted(cfg, state.Installed, wanted, "")
 	fmt.Printf("global sync: %d changed\n", changed)
+}
+
+// uninstallUnwanted removes skills we installed that are no longer subscribed
+// or listed in the project manifest, so unsubscribing actually takes effect.
+func uninstallUnwanted(cfg *Config, stateMap map[string]InstalledSkill, wanted map[string]bool, projectRoot string) int {
+	removed := 0
+	for name := range stateMap {
+		if wanted[name] {
+			continue
+		}
+		for _, tool := range cfg.Tools {
+			a, ok := adapters[tool]
+			if !ok {
+				continue
+			}
+			if err := a.Remove(name, projectRoot); err != nil && !os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "skillsync: remove %s [%s]: %v\n", name, tool, err)
+			}
+		}
+		delete(stateMap, name)
+		fmt.Printf("%-10s %s\n", "removed", name)
+		removed++
+	}
+	return removed
 }
 
 // syncProject installs the project manifest's skills project-locally (SPEC §4).
@@ -218,6 +311,7 @@ func syncProject(cfg *Config, state *State, resolved []Skill, root string) {
 		state.ProjectInstalled[root] = map[string]InstalledSkill{}
 	}
 	changed := 0
+	wanted := map[string]bool{}
 	for _, name := range names {
 		i := slices.IndexFunc(resolved, func(s Skill) bool { return s.Name == name })
 		if i < 0 {
@@ -225,6 +319,7 @@ func syncProject(cfg *Config, state *State, resolved []Skill, root string) {
 			continue
 		}
 		sk := resolved[i]
+		wanted[sk.Name] = true
 		verb := applyAdapters(cfg, sk, root, state.ProjectInstalled[root])
 		if verb != "" {
 			fmt.Printf("%-10s %s (project %s)\n", verb, sk.Name, filepath.Base(root))
@@ -234,14 +329,16 @@ func syncProject(cfg *Config, state *State, resolved []Skill, root string) {
 			fmt.Printf("note: project-local %s shadows your global copy in this project\n", sk.Name)
 		}
 	}
+	changed += uninstallUnwanted(cfg, state.ProjectInstalled[root], wanted, root)
 	fmt.Printf("project sync (%s): %d changed\n", filepath.Base(root), changed)
 }
 
-// applyAdapters runs every enabled adapter for one skill+scope. The Claude
-// Code adapter's verb is the change signal (it is the canonical passthrough);
-// generated adapters (cursor/codex) regenerate unconditionally and atomically.
+// applyAdapters runs every enabled adapter for one skill+scope and returns the
+// change verb. The Claude Code adapter reports it (it owns the install record);
+// when that adapter is not enabled, the generated adapters carry the state
+// entry themselves so status reporting and uninstall still work.
 func applyAdapters(cfg *Config, sk Skill, projectRoot string, stateMap map[string]InstalledSkill) string {
-	verb := ""
+	verb, sawClaude, installed := "", false, false
 	for _, tool := range cfg.Tools {
 		a, ok := adapters[tool]
 		if !ok {
@@ -253,13 +350,29 @@ func applyAdapters(cfg *Config, sk Skill, projectRoot string, stateMap map[strin
 			fmt.Fprintf(os.Stderr, "skillsync: %s [%s]: %v\n", sk.Name, tool, err)
 			continue
 		}
+		installed = true
 		if tool == "claude-code" {
-			verb = v
+			sawClaude, verb = true, v
 		}
+	}
+	if !sawClaude && installed {
+		hash, err := hashDir(sk.Dir)
+		if err != nil {
+			return ""
+		}
+		if rec, ok := stateMap[sk.Name]; ok && rec.Hash == hash {
+			return ""
+		}
+		stateMap[sk.Name] = InstalledSkill{Source: sk.Source, Hash: hash}
+		verb = "generated"
 	}
 	return verb
 }
 
+// cmdAdopt resolves a §10 conflict by replacing the unmanaged copy with the
+// managed version. Scope follows the caller: inside a project with a manifest
+// it adopts the project copy, otherwise the global one — the skip warning is
+// raised per scope, so it must be resolvable per scope.
 func cmdAdopt(name string) {
 	cfg, state, resolved := mustResolve()
 	i := slices.IndexFunc(resolved, func(s Skill) bool { return s.Name == name })
@@ -267,19 +380,30 @@ func cmdAdopt(name string) {
 		fatal("skill %q not found in any source", name)
 	}
 	sk := resolved[i]
-	// Force-adopt: overwrite the unmanaged copy with the managed version (SPEC §10).
-	dest := filepath.Join(claudeGlobalDir(), sk.Name)
-	if err := copyDir(sk.Dir, dest); err != nil {
-		fatal("adopt %s: %v", name, err)
+
+	root := findProjectRoot(mustGetwd())
+	scopeMap := state.Installed
+	scope := "global"
+	if root != "" {
+		if state.ProjectInstalled[root] == nil {
+			state.ProjectInstalled[root] = map[string]InstalledSkill{}
+		}
+		scopeMap = state.ProjectInstalled[root]
+		scope = "project " + filepath.Base(root)
 	}
-	hash, err := hashDir(sk.Dir)
-	if err != nil {
-		fatal("hash %s: %v", name, err)
+	// Clear the unmanaged copy so Install takes the plain install path.
+	for _, tool := range cfg.Tools {
+		if a, ok := adapters[tool]; ok {
+			if err := a.Remove(sk.Name, root); err != nil && !os.IsNotExist(err) {
+				fatal("adopt %s: %v", name, err)
+			}
+		}
 	}
-	state.Installed[sk.Name] = InstalledSkill{Source: sk.Source, Hash: hash}
+	if verb := applyAdapters(cfg, sk, root, scopeMap); verb == "" {
+		fatal("adopt %s: nothing installed — check the tools list in %s", name, configPath())
+	}
 	mustSaveState(state)
-	_ = cfg
-	fmt.Printf("adopted    %s (now managed)\n", name)
+	fmt.Printf("adopted    %s (now managed, %s)\n", name, scope)
 }
 
 func cmdList() {

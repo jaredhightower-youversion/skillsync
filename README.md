@@ -86,7 +86,8 @@ skills:
 - **sources** — precedence-ordered; first source wins name collisions. `pin` (tag/commit)
   freezes a source for change control; omit to track the default branch.
 - **tools** — adapter targets. Default: `claude-code` only.
-- **metrics.endpoint** — optional HTTPS sink for usage events; omit for local-only stats.
+- **metrics.endpoint** — optional sink for usage events; must be `https://` (cleartext is
+  refused, since events name what you are working on). Omit for local-only stats.
 
 ## ⚠️ Local edits get overwritten
 
@@ -110,8 +111,11 @@ What to do instead:
 
 ## Behavior notes
 
-- Project-local skills shadow a global skill of the same name; sync reports the
-  shadowing instead of installing twice.
+- Project-local skills shadow a global skill of the same name; sync installs both and
+  reports the shadowing (agent tools prefer the project copy).
+- Unsubscribing a skill, or dropping it from `skillsync.yaml`, uninstalls it on the next sync.
+- Source URLs must be `https://`, `ssh://`, `git://`, `file://`, or `user@host:path`. Git
+  transport helpers (`ext::`) are refused: they run shell commands.
 - Windows: the CLI works; background scheduling is not wired up yet — run
   `skillsync sync-all` from Task Scheduler manually.
 

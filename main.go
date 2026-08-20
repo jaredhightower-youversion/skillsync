@@ -16,10 +16,20 @@ type Config struct {
 	Sources []Source `json:"sources"`
 	// Adapter targets. Default: claude-code only; users opt into others.
 	Tools []string `json:"tools"`
-	// Global subscriptions (SPEC §4). Empty = subscribe to everything
-	// (indie-friendly default).
-	GlobalSkills []string `json:"global_skills,omitempty"`
-	Metrics      Metrics  `json:"metrics"`
+	// Global subscriptions (SPEC §4). Unset (nil) = subscribe to everything,
+	// the indie-friendly default. An explicitly emptied list means "none" —
+	// unsubscribing your last skill must not silently install every skill in
+	// every source.
+	GlobalSkills *[]string `json:"global_skills,omitempty"`
+	Metrics      Metrics   `json:"metrics"`
+}
+
+// subscribed reports whether a skill belongs in the user's global scope.
+func (c *Config) subscribed(name string) bool {
+	if c.GlobalSkills == nil {
+		return true
+	}
+	return slices.Contains(*c.GlobalSkills, name)
 }
 
 type Source struct {
@@ -62,7 +72,16 @@ func configPath() string  { return filepath.Join(stateDir(), "config.json") }
 func statePath() string   { return filepath.Join(stateDir(), "state.json") }
 func reposDir() string    { return filepath.Join(stateDir(), "repos") }
 func eventsPath() string  { return filepath.Join(stateDir(), "events.jsonl") }
-func binaryPath() string  { p, _ := os.Executable(); return p }
+
+// binaryPath is the absolute path to this binary, used when writing scheduler
+// and hook entries that must invoke it later.
+func binaryPath() string {
+	p, err := os.Executable()
+	if err != nil || p == "" {
+		fatal("cannot determine the skillsync binary path: %v", err)
+	}
+	return p
+}
 
 func loadConfig() (*Config, error) {
 	b, err := os.ReadFile(configPath())
@@ -169,8 +188,14 @@ func cmdInit(url string) {
 	if _, err := loadConfig(); err == nil {
 		fatal("already initialized (%s); edit it to change sources", configPath())
 	}
+	src := Source{Name: "default", URL: url}
+	// Prove the URL works before persisting it — otherwise a typo leaves a
+	// config that makes every retry of `init` refuse to run.
+	if _, err := fetchSource(src); err != nil {
+		fatal("cannot use %s: %v", url, err)
+	}
 	cfg := &Config{
-		Sources: []Source{{Name: "default", URL: url}},
+		Sources: []Source{src},
 		Tools:   []string{"claude-code"},
 		Metrics: Metrics{Enabled: true},
 	}
@@ -186,19 +211,36 @@ func cmdSubscribe(name string, add bool) {
 	if err != nil {
 		fatal("not initialized — run: skillsync init <git-url>")
 	}
-	has := slices.Contains(cfg.GlobalSkills, name)
+	// First explicit `add` narrows an unset (= everything) list to a chosen set;
+	// first explicit `remove` needs the resolved set to subtract from.
+	var list []string
+	if cfg.GlobalSkills != nil {
+		list = *cfg.GlobalSkills
+	} else if add {
+		list = nil
+	} else {
+		_, _, resolved := mustResolve()
+		for _, sk := range resolved {
+			list = append(list, sk.Name)
+		}
+	}
+	has := slices.Contains(list, name)
 	switch {
 	case add && has:
 		fmt.Printf("already subscribed to %s\n", name)
 		return
 	case add:
-		cfg.GlobalSkills = append(cfg.GlobalSkills, name)
+		list = append(list, name)
 	case !has:
 		fmt.Printf("not subscribed to %s\n", name)
 		return
 	default:
-		cfg.GlobalSkills = slices.DeleteFunc(cfg.GlobalSkills, func(s string) bool { return s == name })
+		list = slices.DeleteFunc(list, func(s string) bool { return s == name })
 	}
+	if list == nil {
+		list = []string{} // explicitly empty, not "unset"
+	}
+	cfg.GlobalSkills = &list
 	if err := saveJSON(configPath(), cfg); err != nil {
 		fatal("write config: %v", err)
 	}

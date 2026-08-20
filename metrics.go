@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"time"
@@ -16,6 +17,9 @@ import (
 // appended locally as JSONL, batched to a configurable HTTPS sink during sync.
 // No endpoint configured = local-only stats. Cursor/Codex approximate
 // log-parsing is a spec open item — not implemented.
+
+// metricsClient is a package var so tests can point it at a local test sink.
+var metricsClient = &http.Client{Timeout: 10 * time.Second}
 
 type usageEvent struct {
 	Skill string    `json:"skill"`
@@ -54,8 +58,14 @@ func cmdTrack(args []string) {
 	f.Write(append(b, '\n'))
 }
 
+// readEvents reads the live queue plus any batch left behind by a failed
+// flush, so `stats` never under-reports while a send is pending.
 func readEvents() []usageEvent {
-	f, err := os.Open(eventsPath())
+	return append(readEventsFrom(eventsPath()), readEventsFrom(eventsPath()+".sending")...)
+}
+
+func readEventsFrom(path string) []usageEvent {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
@@ -97,30 +107,46 @@ func cmdStats() {
 }
 
 // flushMetrics batches queued events to the configured sink; on success the
-// local queue is cleared. Endpoint failures leave the queue intact for the
+// batch is dropped. Endpoint failures return the batch to the queue for the
 // next sync tick.
+//
+// The queue is renamed aside before the POST so events the hook appends during
+// the request land in a fresh file instead of being deleted unsent.
 func flushMetrics(cfg *Config) {
 	if !cfg.Metrics.Enabled || cfg.Metrics.Endpoint == "" {
 		return
 	}
-	events := readEvents()
+	// Usage events name what an engineer is working on; refuse to ship them
+	// in cleartext even if a config typo asks us to (SPEC §8).
+	if u, err := url.Parse(cfg.Metrics.Endpoint); err != nil || u.Scheme != "https" {
+		fmt.Fprintln(os.Stderr, "skillsync: metrics endpoint must be https; skipping flush")
+		return
+	}
+	sending := eventsPath() + ".sending"
+	if _, err := os.Stat(sending); err == nil {
+		// A previous flush died mid-send; retry that batch first.
+	} else if err := os.Rename(eventsPath(), sending); err != nil {
+		return // nothing queued
+	}
+	events := readEventsFrom(sending)
 	if len(events) == 0 {
+		os.Remove(sending)
 		return
 	}
 	body, err := json.Marshal(events)
 	if err != nil {
+		os.Remove(sending)
 		return
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(cfg.Metrics.Endpoint, "application/json", bytes.NewReader(body))
+	resp, err := metricsClient.Post(cfg.Metrics.Endpoint, "application/json", bytes.NewReader(body))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "skillsync: metrics flush failed (kept locally): %v\n", err)
-		return
+		return // batch stays in .sending for the next tick
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		fmt.Fprintf(os.Stderr, "skillsync: metrics sink returned %s (kept locally)\n", resp.Status)
 		return
 	}
-	os.Remove(eventsPath())
+	os.Remove(sending)
 }

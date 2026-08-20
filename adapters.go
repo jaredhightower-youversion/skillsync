@@ -7,11 +7,20 @@ import (
 	"strings"
 )
 
-// Adapter installs one skill into one tool's expected location (SPEC §3).
-// projectRoot == "" means global scope. stateMap is the install record for
-// the scope being synced.
+// Adapter installs or removes one skill in one tool's expected location
+// (SPEC §3). projectRoot == "" means global scope. stateMap is the install
+// record for the scope being synced.
+//
+// Only the claude-code adapter's returned verb and stateMap writes are used by
+// the sync loop (sync.go): it is the canonical passthrough, and its target is
+// the one a user can also have written by hand, so it owns the drift/adopt
+// decision table. The generated adapters report nothing and are regenerated
+// from the resolved skill set on every sync.
 type Adapter interface {
 	Install(sk Skill, projectRoot string, stateMap map[string]InstalledSkill) (verb string, err error)
+	// Remove deletes what Install wrote for a skill that is no longer
+	// subscribed or listed in a project manifest.
+	Remove(name, projectRoot string) error
 }
 
 var adapters = map[string]Adapter{
@@ -78,6 +87,14 @@ func (claudeAdapter) Install(sk Skill, projectRoot string, stateMap map[string]I
 	return verb, nil
 }
 
+func (claudeAdapter) Remove(name, projectRoot string) error {
+	base := claudeGlobalDir()
+	if projectRoot != "" {
+		base = filepath.Join(projectRoot, ".claude", "skills")
+	}
+	return os.RemoveAll(filepath.Join(base, name))
+}
+
 // cursorAdapter generates .cursor/rules/<name>.mdc from SKILL.md. Cursor rules
 // are project-scoped only; global scope is a no-op. Generated files are
 // regenerated atomically every sync (Ruler-style) — local edits to generated
@@ -92,9 +109,22 @@ func (cursorAdapter) Install(sk Skill, projectRoot string, _ map[string]Installe
 	if err != nil {
 		return "", err
 	}
-	content := fmt.Sprintf("---\ndescription: %s\nalwaysApply: false\n---\n\n%s", fm.Description, body)
+	content := fmt.Sprintf("---\ndescription: %s\nalwaysApply: false\n---\n\n%s", yamlScalar(fm.Description), body)
 	dest := filepath.Join(projectRoot, ".cursor", "rules", sk.Name+".mdc")
 	return "", writeIfChanged(dest, []byte(content))
+}
+
+// yamlScalar quotes a value so descriptions containing ": ", "#", or a leading
+// YAML indicator can't produce an unparseable frontmatter block.
+func yamlScalar(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", " ").Replace(s) + `"`
+}
+
+func (cursorAdapter) Remove(name, projectRoot string) error {
+	if projectRoot == "" {
+		return nil
+	}
+	return os.Remove(filepath.Join(projectRoot, ".cursor", "rules", name+".mdc"))
 }
 
 // codexAdapter maintains a managed section in AGENTS.md (global: ~/.codex/,
@@ -105,6 +135,12 @@ const (
 	codexStart = "<!-- skillsync:start — managed by skillsync, do not edit -->"
 	codexEnd   = "<!-- skillsync:end -->"
 )
+
+// Per-skill markers delimit each block. Slicing on markdown headings would
+// break on any h3 inside a skill body and orphan the remainder on every sync.
+func codexSkillStart(name string) string { return "<!-- skillsync:skill=" + name + " -->" }
+
+const codexSkillEnd = "<!-- skillsync:/skill -->"
 
 func (codexAdapter) Install(sk Skill, projectRoot string, _ map[string]InstalledSkill) (string, error) {
 	base := filepath.Join(homeDir(), ".codex")
@@ -117,13 +153,35 @@ func (codexAdapter) Install(sk Skill, projectRoot string, _ map[string]Installed
 	}
 	path := filepath.Join(base, "AGENTS.md")
 	existing, _ := os.ReadFile(path)
-	section := fmt.Sprintf("### %s\n%s\n\n%s\n", sk.Name, fm.Description, strings.TrimSpace(body))
+	section := fmt.Sprintf("%s\n### %s\n%s\n\n%s\n%s\n",
+		codexSkillStart(sk.Name), sk.Name, fm.Description, strings.TrimSpace(body), codexSkillEnd)
 	updated := upsertManagedSection(string(existing), sk.Name, section)
 	return "", writeIfChanged(path, []byte(updated))
 }
 
+func (codexAdapter) Remove(name, projectRoot string) error {
+	base := filepath.Join(homeDir(), ".codex")
+	if projectRoot != "" {
+		base = projectRoot
+	}
+	path := filepath.Join(base, "AGENTS.md")
+	doc, err := os.ReadFile(path)
+	if err != nil {
+		return nil // nothing written for this tool
+	}
+	s := string(doc)
+	startIdx := strings.Index(s, codexStart)
+	endIdx := strings.Index(s, codexEnd)
+	if startIdx < 0 || endIdx < startIdx {
+		return nil
+	}
+	inner := removeSkillBlock(s[startIdx+len(codexStart):endIdx], name)
+	return writeIfChanged(path, []byte(s[:startIdx]+codexStart+inner+codexEnd+s[endIdx+len(codexEnd):]))
+}
+
 // upsertManagedSection inserts or replaces one skill's block inside the
 // skillsync-managed region of an AGENTS.md, creating the region if absent.
+// Content outside the region markers is never touched.
 func upsertManagedSection(doc, skillName, section string) string {
 	startIdx := strings.Index(doc, codexStart)
 	endIdx := strings.Index(doc, codexEnd)
@@ -135,23 +193,28 @@ func upsertManagedSection(doc, skillName, section string) string {
 		}
 		return doc + region
 	}
-	inner := doc[startIdx+len(codexStart) : endIdx]
-	marker := "### " + skillName + "\n"
-	if i := strings.Index(inner, marker); i >= 0 {
-		// Replace this skill's block (runs until next "### " or region end).
-		rest := inner[i+len(marker):]
-		next := strings.Index(rest, "\n### ")
-		if next >= 0 {
-			inner = inner[:i] + rest[next+1:]
-		} else {
-			inner = inner[:i]
-		}
-	}
+	inner := removeSkillBlock(doc[startIdx+len(codexStart):endIdx], skillName)
 	if inner != "" && !strings.HasSuffix(inner, "\n") {
 		inner += "\n"
 	}
 	inner += section
 	return doc[:startIdx] + codexStart + "\n" + strings.TrimPrefix(inner, "\n") + codexEnd + doc[endIdx+len(codexEnd):]
+}
+
+// removeSkillBlock strips one skill's marker-delimited block from a managed
+// region, leaving other skills' blocks untouched.
+func removeSkillBlock(inner, skillName string) string {
+	marker := codexSkillStart(skillName)
+	i := strings.Index(inner, marker)
+	if i < 0 {
+		return inner
+	}
+	rest := inner[i+len(marker):]
+	end := strings.Index(rest, codexSkillEnd)
+	if end < 0 {
+		return inner[:i] // truncated block: drop the remainder
+	}
+	return inner[:i] + strings.TrimPrefix(rest[end+len(codexSkillEnd):], "\n")
 }
 
 type frontmatter struct {

@@ -19,17 +19,19 @@ func claudeSettingsPath() string { return filepath.Join(homeDir(), ".claude", "s
 
 func hookEntries() (sessionStart, postToolUse map[string]any) {
 	bin := binaryPath()
+	// Quote the path: install locations like ~/Library/Application Support
+	// contain spaces, and an unquoted path runs the wrong command silently.
 	sessionStart = map[string]any{
 		"hooks": []any{map[string]any{
 			"type":    "command",
-			"command": fmt.Sprintf("(%s sync-all >/dev/null 2>&1 &)", bin),
+			"command": fmt.Sprintf("(%q sync-all >/dev/null 2>&1 &)", bin),
 		}},
 	}
 	postToolUse = map[string]any{
 		"matcher": "Skill",
 		"hooks": []any{map[string]any{
 			"type":    "command",
-			"command": bin + " track --stdin",
+			"command": fmt.Sprintf("%q track --stdin", bin),
 		}},
 	}
 	return
