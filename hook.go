@@ -1,0 +1,88 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Claude Code hooks (SPEC §2 session-start freshness, §8 exact usage events):
+//   SessionStart          → skillsync sync-all   (backgrounded, non-blocking)
+//   PostToolUse (Skill)   → skillsync track --stdin
+//
+// `hook install` merges into ~/.claude/settings.json idempotently;
+// `hook print` emits the JSON for users who manage settings by hand.
+
+func claudeSettingsPath() string { return filepath.Join(homeDir(), ".claude", "settings.json") }
+
+func hookEntries() (sessionStart, postToolUse map[string]any) {
+	bin := binaryPath()
+	sessionStart = map[string]any{
+		"hooks": []any{map[string]any{
+			"type":    "command",
+			"command": fmt.Sprintf("(%s sync-all >/dev/null 2>&1 &)", bin),
+		}},
+	}
+	postToolUse = map[string]any{
+		"matcher": "Skill",
+		"hooks": []any{map[string]any{
+			"type":    "command",
+			"command": bin + " track --stdin",
+		}},
+	}
+	return
+}
+
+func cmdHook(sub string) {
+	ss, ptu := hookEntries()
+	switch sub {
+	case "print":
+		out, _ := json.MarshalIndent(map[string]any{
+			"hooks": map[string]any{
+				"SessionStart": []any{ss},
+				"PostToolUse":  []any{ptu},
+			},
+		}, "", "  ")
+		fmt.Println(string(out))
+	case "install":
+		settings := map[string]any{}
+		if b, err := os.ReadFile(claudeSettingsPath()); err == nil {
+			if err := json.Unmarshal(b, &settings); err != nil {
+				fatal("parse %s: %v — fix it or use `skillsync hook print` and merge by hand", claudeSettingsPath(), err)
+			}
+		}
+		hooks, _ := settings["hooks"].(map[string]any)
+		if hooks == nil {
+			hooks = map[string]any{}
+		}
+		added := 0
+		for event, entry := range map[string]map[string]any{"SessionStart": ss, "PostToolUse": ptu} {
+			list, _ := hooks[event].([]any)
+			if hasSkillsyncHook(list) {
+				continue
+			}
+			hooks[event] = append(list, entry)
+			added++
+		}
+		settings["hooks"] = hooks
+		if added == 0 {
+			fmt.Println("hooks already installed")
+			return
+		}
+		if err := saveJSON(claudeSettingsPath(), settings); err != nil {
+			fatal("write %s: %v", claudeSettingsPath(), err)
+		}
+		fmt.Printf("installed %d hook(s) into %s\n", added, claudeSettingsPath())
+	default:
+		usage()
+	}
+}
+
+// hasSkillsyncHook reports whether any hook command in the list mentions
+// skillsync — the idempotency check for `hook install`.
+func hasSkillsyncHook(list []any) bool {
+	b, _ := json.Marshal(list)
+	return strings.Contains(string(b), "skillsync")
+}

@@ -1,0 +1,36 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - name: Test
+        run: go test ./...
+      - name: Cross-compile
+        run: |
+          mkdir -p dist
+          for os in darwin linux windows; do
+            for arch in amd64 arm64; do
+              ext=""; [ "$os" = "windows" ] && ext=".exe"
+              GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+                go build -trimpath -ldflags="-s -w" \
+                -o "dist/skillsync-$os-$arch$ext" .
+            done
+          done
+          (cd dist && shasum -a 256 * > checksums.txt)
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
