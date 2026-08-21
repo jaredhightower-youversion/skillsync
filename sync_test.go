@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -390,6 +391,31 @@ func TestLastChangedAndAge(t *testing.T) {
 	}
 }
 
+// fakeDaemonInstalled writes whatever marker daemonInstalled() looks for on
+// this platform, so the health tests run everywhere CI does rather than only
+// on macOS.
+func fakeDaemonInstalled(t *testing.T) {
+	t.Helper()
+	switch runtime.GOOS {
+	case "darwin":
+		if err := os.MkdirAll(filepath.Dir(launchdPlistPath()), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(launchdPlistPath(), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	case "linux":
+		if err := os.MkdirAll(systemdUnitDir(), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(systemdUnitDir(), "skillsync.timer"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	default:
+		t.Skip("no daemon marker to fake on " + runtime.GOOS)
+	}
+}
+
 func TestHealthProblemDetection(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -402,8 +428,7 @@ func TestHealthProblemDetection(t *testing.T) {
 	}
 
 	// With a job registered, a recent success is healthy...
-	os.MkdirAll(filepath.Dir(launchdPlistPath()), 0o755)
-	os.WriteFile(launchdPlistPath(), []byte("x"), 0o644)
+	fakeDaemonInstalled(t)
 	if p := healthProblem(&State{Health: Health{LastSuccess: now}}); p != "" {
 		t.Fatalf("expected healthy, got %q", p)
 	}
