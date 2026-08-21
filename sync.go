@@ -13,7 +13,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -200,30 +199,6 @@ func cmdSyncAll() {
 	}
 	mustSaveState(state)
 	flushMetrics(cfg)
-}
-
-// lockSync serializes syncs. The daemon timer and the session-start hook both
-// fire sync-all, and two runs sharing one clone can hash a half-checked-out
-// tree or lose a state.json write. A second run exits rather than queueing:
-// the next tick is at most 15 minutes away.
-func lockSync() func() {
-	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
-		fatal("create state dir: %v", err)
-	}
-	path := filepath.Join(stateDir(), "sync.lock")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		fatal("open lock: %v", err)
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		fmt.Println("another sync is already running; skipping")
-		f.Close()
-		os.Exit(0)
-	}
-	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
-	}
 }
 
 func mustResolve() (*Config, *State, []Skill) {

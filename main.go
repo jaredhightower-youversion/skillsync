@@ -124,14 +124,22 @@ func saveJSON(path string, v any) error {
 	return os.WriteFile(path, b, 0o644)
 }
 
+// recoverableFatal makes fatal panic instead of exiting, so an optional setup
+// step can fail without killing the run. Set only by runStep.
+var recoverableFatal bool
+
 func fatal(format string, args ...any) {
+	if recoverableFatal {
+		panic(fmt.Sprintf(format, args...))
+	}
 	fmt.Fprintf(os.Stderr, "skillsync: "+format+"\n", args...)
 	os.Exit(1)
 }
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
-  skillsync init <git-url>        configure skill source and run first sync
+  skillsync init <git-url>       set up this machine: sync, background updates, hooks
+                                  (--no-daemon / --no-hooks to skip either)
   skillsync sync                  sync global skills + current project (if it has skillsync.yaml)
   skillsync sync-all              sync global skills + every registered project (daemon entry)
   skillsync list                  list resolved skills and install status
@@ -157,9 +165,10 @@ func main() {
 		}
 		return os.Args[i]
 	}
+	hasFlag := func(name string) bool { return slices.Contains(os.Args, name) }
 	switch os.Args[1] {
 	case "init":
-		cmdInit(arg(2))
+		cmdInit(arg(2), !hasFlag("--no-daemon"), !hasFlag("--no-hooks"))
 	case "sync":
 		cmdSync()
 	case "sync-all":
@@ -187,7 +196,13 @@ func main() {
 	}
 }
 
-func cmdInit(url string) {
+// cmdInit is the whole onboarding: point at a repo and the machine is set up.
+// The background job and hooks are what make skills update without anyone
+// running a command, so they are on by default — a tool that silently never
+// auto-updates is the failure this project exists to prevent. Either can be
+// declined, and neither failing is fatal: the config and skills are still
+// good, so we warn and carry on rather than leaving a half-initialized state.
+func cmdInit(url string, withDaemon, withHooks bool) {
 	if _, err := loadConfig(); err == nil {
 		fatal("already initialized (%s); edit it to change sources", configPath())
 	}
@@ -207,6 +222,28 @@ func cmdInit(url string) {
 	}
 	fmt.Printf("initialized with source %s\n", url)
 	cmdSync()
+
+	if withDaemon {
+		runStep("background sync", func() { cmdDaemon("install") })
+	}
+	if withHooks {
+		runStep("Claude Code hooks", func() { cmdHook("install") })
+	}
+	fmt.Println("\nready — skills stay up to date on their own. `skillsync list` to see them.")
+}
+
+// runStep runs an optional setup step, turning a fatal into a warning so one
+// unavailable scheduler or unwritable settings file cannot abort onboarding.
+func runStep(label string, step func()) {
+	recoverableFatal = true
+	defer func() {
+		recoverableFatal = false
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "skillsync: could not set up %s: %v\n", label, r)
+			fmt.Fprintf(os.Stderr, "  skills still sync when you run `skillsync sync`.\n")
+		}
+	}()
+	step()
 }
 
 func cmdSubscribe(name string, add bool) {

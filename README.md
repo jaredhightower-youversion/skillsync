@@ -22,13 +22,15 @@ Or with Go installed:
 go install github.com/OWNER/skillsync@latest
 ```
 
-## Setup (one time)
+## Setup (one time, per machine)
 
 ```sh
-skillsync init git@github.com:your-org/skills.git   # point at your team's skill repo
-skillsync daemon install                            # background sync every 15m + at login
-skillsync hook install                              # Claude Code: sync at session start + usage tracking
+skillsync init git@github.com:your-org/skills.git
 ```
+
+That syncs your skills, registers a background job that re-syncs every 15 minutes, and adds
+Claude Code hooks for session-start sync and usage tracking. Skip either piece with
+`--no-daemon` or `--no-hooks`.
 
 Done. Skills appear in `~/.claude/skills/` and update on their own.
 
@@ -170,8 +172,8 @@ other hooks and settings stay as they are.
 - Unsubscribing a skill, or dropping it from `skillsync.yaml`, uninstalls it on the next sync.
 - Source URLs must be `https://`, `ssh://`, `git://`, `file://`, or `user@host:path`. Git
   transport helpers (`ext::`) are refused: they run shell commands.
-- Windows: the CLI works; background scheduling is not wired up yet — run
-  `skillsync sync-all` from Task Scheduler manually.
+- Windows is supported: background sync registers with Task Scheduler. Claude Code hooks
+  and the git credentials work the same as elsewhere.
 
 ## Release
 

@@ -28,8 +28,43 @@ func cmdDaemon(sub string) {
 		daemonDarwin(sub)
 	case "linux":
 		daemonLinux(sub)
+	case "windows":
+		daemonWindows(sub)
 	default:
 		fatal("daemon not supported on %s yet — schedule `skillsync sync-all` with your OS scheduler", runtime.GOOS)
+	}
+}
+
+const windowsTaskName = "skillsync"
+
+// daemonWindows drives Task Scheduler through schtasks.exe, the equivalent of
+// the launchd agent and systemd timer: run sync-all every 15 minutes, and at
+// logon so a laptop that was asleep catches up.
+func daemonWindows(sub string) {
+	switch sub {
+	case "install":
+		args := []string{
+			"/Create", "/F",
+			"/TN", windowsTaskName,
+			"/TR", fmt.Sprintf(`"%s" sync-all`, binaryPath()),
+			"/SC", "MINUTE", "/MO", "15",
+		}
+		if out, err := exec.Command("schtasks", args...).CombinedOutput(); err != nil {
+			fatal("schtasks create: %v: %s", err, out)
+		}
+		fmt.Println("daemon installed: sync-all every 15m (Task Scheduler)")
+	case "uninstall":
+		exec.Command("schtasks", "/Delete", "/F", "/TN", windowsTaskName).Run()
+		fmt.Println("daemon uninstalled")
+	case "status":
+		out, err := exec.Command("schtasks", "/Query", "/TN", windowsTaskName).CombinedOutput()
+		if err != nil {
+			fmt.Println("daemon: not installed")
+			return
+		}
+		fmt.Printf("daemon: installed\n%s", out)
+	default:
+		usage()
 	}
 }
 

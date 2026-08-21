@@ -80,7 +80,7 @@ Rationale: managed-overwrite (§5) applies only to files SkillSync installed; ha
 All six build slices implemented and verified (unit tests + end-to-end smoke): CLI (`init/sync/sync-all/list/add/remove/adopt`), daemon (launchd + systemd user timer), Claude Code hooks (`hook install`: SessionStart sync + PostToolUse Skill tracking), adapters (Claude Code passthrough, Cursor `.mdc` project rules, Codex managed AGENTS.md section), metrics (`track`/`stats` + HTTPS sink flush), multi-source precedence + per-source pin. Codex adapter decision: managed marker section in AGENTS.md, user content preserved.
 
 ## Deferred / open
-- Windows daemon (Task Scheduler) — `daemon install` errors with guidance on Windows
+- Windows daemon: implemented via Task Scheduler; untested on real hardware
 - Cursor/Codex approximate usage metrics via session-log parsing — feasibility unproven
 - `skillsync propose` (open upstream PR from local edit) — only `fork`-by-rename + `adopt` exist
 - Reference metrics collector: build tiny one vs document PostHog
