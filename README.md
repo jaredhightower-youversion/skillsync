@@ -61,13 +61,25 @@ skills:
 | Command | What it does |
 |---|---|
 | `skillsync sync` | Sync now (global + current project) |
-| `skillsync list` | Resolved skills and install status |
+| `skillsync list` | Skills with install status, when each last changed, and who changed it |
 | `skillsync add / remove <skill>` | Manage global subscriptions (default: all) |
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
 | `skillsync stats` | Local skill-usage counts |
 | `skillsync daemon status` | Background job status |
 | `skillsync hook print` | Hook JSON for hand-managed Claude Code settings |
 | `skillsync uninstall` | Remove skillsync and everything it installed |
+
+`skillsync list` answers "what changed lately", newest first:
+
+```
+STATUS     SKILL                        UPDATED      BY               SOURCE
+installed  deploy-checklist             2h ago       Grace Hopper     team
+installed  code-review                  6d ago       Ada Lovelace     org
+available  release-notes                2026-05-01   Ada Lovelace     org
+```
+
+Dates come from the skill repo's git history, so they reflect when a skill was actually
+edited, not when your machine last synced.
 
 ## Configuration
 

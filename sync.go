@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Skill is a directory in a source repo containing SKILL.md.
@@ -435,15 +436,77 @@ func cmdUninstall(keepSkills bool) {
 	fmt.Println("done — delete the skillsync binary itself to finish")
 }
 
+// cmdList shows every resolved skill, newest change first, so "what changed
+// lately" is answerable at a glance.
 func cmdList() {
 	_, state, resolved := mustResolve()
+
+	type row struct {
+		skill   Skill
+		updated time.Time
+		author  string
+	}
+	rows := make([]row, 0, len(resolved))
 	for _, sk := range resolved {
+		when, who := lastChanged(sk)
+		rows = append(rows, row{sk, when, who})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].updated.After(rows[j].updated) })
+
+	fmt.Printf("%-10s %-28s %-12s %-16s %s\n", "STATUS", "SKILL", "UPDATED", "BY", "SOURCE")
+	for _, r := range rows {
 		status := "available"
-		if _, ok := state.Installed[sk.Name]; ok {
+		if _, ok := state.Installed[r.skill.Name]; ok {
 			status = "installed"
 		}
-		fmt.Printf("%-10s %-30s source=%s\n", status, sk.Name, sk.Source)
+		fmt.Printf("%-10s %-28s %-12s %-16s %s\n",
+			status, r.skill.Name, humanAge(r.updated), truncate(r.author, 16), r.skill.Source)
 	}
+}
+
+// lastChanged reports when a skill last changed upstream and who changed it,
+// read from the source repo's history rather than file mtimes (which reflect
+// when we cloned, not when the skill was edited).
+func lastChanged(sk Skill) (time.Time, string) {
+	repoPath := filepath.Join(reposDir(), sk.Source)
+	rel, err := filepath.Rel(repoPath, sk.Dir)
+	if err != nil {
+		return time.Time{}, ""
+	}
+	out, err := gitCmd(repoPath, "log", "-1", "--format=%cI%x00%an", "--", rel)
+	if err != nil || out == "" {
+		return time.Time{}, ""
+	}
+	stamp, author, _ := strings.Cut(out, "\x00")
+	when, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return time.Time{}, author
+	}
+	return when, author
+}
+
+func humanAge(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d < 60*24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	default:
+		return t.Format("2006-01-02")
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
 }
 
 // hashDir is a content hash over sorted relative paths + file bytes.

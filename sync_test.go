@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeSkill(t *testing.T, root, name, body string) string {
@@ -368,5 +370,45 @@ func TestHookUninstallPreservesOtherHooks(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "echo mine") {
 		t.Fatalf("user hook lost: %s", b)
+	}
+}
+
+func TestLastChangedAndAge(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := filepath.Join(reposDir(), "src")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir := writeSkill(t, repo, "aged", "body")
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"-c", "user.email=t@t", "-c", "user.name=Ada Lovelace", "add", "-A"},
+		{"-c", "user.email=t@t", "-c", "user.name=Ada Lovelace", "commit", "-qm", "add skill"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git setup failed: %v: %s", err, out)
+		}
+	}
+	when, who := lastChanged(Skill{Name: "aged", Dir: dir, Source: "src"})
+	if when.IsZero() {
+		t.Fatal("no commit time resolved")
+	}
+	if who != "Ada Lovelace" {
+		t.Fatalf("author = %q", who)
+	}
+	if got := humanAge(when); got != "0m ago" {
+		t.Fatalf("fresh commit rendered as %q", got)
+	}
+	if humanAge(time.Time{}) != "unknown" {
+		t.Fatal("zero time should render as unknown")
+	}
+	if humanAge(time.Now().Add(-50*time.Hour)) != "2d ago" {
+		t.Fatalf("50h rendered as %q", humanAge(time.Now().Add(-50*time.Hour)))
 	}
 }
