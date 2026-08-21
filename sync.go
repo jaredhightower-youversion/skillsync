@@ -171,31 +171,40 @@ func discoverSkills(repoPath string) ([]Skill, error) {
 	return skills, walkErr
 }
 
+// cmdSync syncs everything: global subscriptions, every project synced before,
+// and the project you are standing in. One command rather than the old
+// sync/sync-all split, which asked users to know which scope they wanted for
+// an operation that is idempotent and cheap either way.
 func cmdSync() {
 	unlock := lockSync()
 	defer unlock()
-	cfg, state, resolved := mustResolve()
-	syncGlobal(cfg, state, resolved)
-	if root := findProjectRoot(mustGetwd()); root != "" {
-		syncProject(cfg, state, resolved, root)
-		if !slices.Contains(state.Projects, root) {
-			state.Projects = append(state.Projects, root)
-		}
-	}
-	mustSaveState(state)
-	flushMetrics(cfg)
-}
 
-func cmdSyncAll() {
-	unlock := lockSync()
-	defer unlock()
-	cfg, state, resolved := mustResolve()
+	cfg, err := loadConfig()
+	if err != nil {
+		fatal("not initialized — run: skillsync init <git-url>")
+	}
+	if len(cfg.Sources) == 0 {
+		fatal("no sources configured in %s", configPath())
+	}
+	state := loadState()
+
+	resolved, resolveErr := resolveSkills(cfg)
+	recordSync(state, resolveErr)
+	if resolveErr != nil {
+		mustSaveState(state) // remember the failure so `auto status` can report it
+		fatal("%v", resolveErr)
+	}
+
 	syncGlobal(cfg, state, resolved)
 	for _, root := range state.Projects {
 		if _, err := os.Stat(filepath.Join(root, manifestName)); err != nil {
 			continue // project gone or manifest removed; keep registration cheaply
 		}
 		syncProject(cfg, state, resolved, root)
+	}
+	if root := findProjectRoot(mustGetwd()); root != "" && !slices.Contains(state.Projects, root) {
+		syncProject(cfg, state, resolved, root)
+		state.Projects = append(state.Projects, root)
 	}
 	mustSaveState(state)
 	flushMetrics(cfg)
@@ -414,6 +423,7 @@ func cmdUninstall(keepSkills bool) {
 // cmdList shows every resolved skill, newest change first, so "what changed
 // lately" is answerable at a glance.
 func cmdList() {
+	warnIfUnhealthy()
 	_, state, resolved := mustResolve()
 
 	type row struct {

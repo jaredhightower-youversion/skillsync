@@ -37,6 +37,10 @@ func cmdDaemon(sub string) {
 
 const windowsTaskName = "skillsync"
 
+func windowsTaskExists() bool {
+	return exec.Command("schtasks", "/Query", "/TN", windowsTaskName).Run() == nil
+}
+
 // daemonWindows drives Task Scheduler through schtasks.exe, the equivalent of
 // the launchd agent and systemd timer: run sync-all every 15 minutes, and at
 // logon so a laptop that was asleep catches up.

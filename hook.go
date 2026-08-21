@@ -39,7 +39,11 @@ func hookEntries() (sessionStart, postToolUse map[string]any) {
 	sessionStart = map[string]any{
 		"hooks": []any{map[string]any{
 			"type":    "command",
-			"command": fmt.Sprintf("(%q sync-all >/dev/null 2>&1 &)", bin),
+			// check is fast and offline: it prints only when something is
+			// broken, so failures surface inside the session instead of the
+			// daemon log. The sync itself is backgrounded so it never delays
+			// session start.
+			"command": fmt.Sprintf("%q check; (%q sync >/dev/null 2>&1 &)", bin, bin),
 		}},
 	}
 	postToolUse = map[string]any{

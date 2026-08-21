@@ -82,6 +82,7 @@ func readEventsFrom(path string) []usageEvent {
 }
 
 func cmdStats() {
+	warnIfUnhealthy()
 	events := readEvents()
 	if len(events) == 0 {
 		fmt.Println("no usage events recorded yet (install hooks: skillsync hook install)")

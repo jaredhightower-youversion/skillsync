@@ -62,19 +62,17 @@ skills:
 
 | Command | What it does |
 |---|---|
-| `skillsync init <git-url>` | Set up this machine (see above); `--no-daemon` / `--no-hooks` to skip a step |
-| `skillsync sync` | Sync now (global + current project) |
-| `skillsync sync-all` | Sync global + every project you've synced before; what the background job runs |
+| `skillsync init <git-url>` | Set up this machine (see above); `--no-daemon` / `--no-hooks` to skip a part |
+| `skillsync sync` | Sync now |
 | `skillsync list` | Skills with install status, when each last changed, and who changed it |
 | `skillsync add / remove <skill>` | Manage global subscriptions (default: all) |
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
 | `skillsync stats` | How often each skill has been used on this machine |
-| `skillsync daemon status` | Background job status |
-| `skillsync hook print` | Hook JSON for hand-managed Claude Code settings |
+| `skillsync auto on / off / status` | Automatic updating: the background job and Claude Code hooks |
 | `skillsync uninstall` | Remove skillsync and everything it installed |
 
-`skillsync track` also exists but you never type it — the Claude Code hook calls it to record
-which skills get used.
+Realistically you type `init` once and `list` or `stats` occasionally; everything else is for
+when something needs checking.
 
 `skillsync list` answers "what changed lately", newest first:
 
@@ -110,6 +108,40 @@ Two things to know about the numbers:
 
 By default the counts never leave your machine. Set `metrics.endpoint` in the config to send
 them to a team collector instead — see below.
+
+## Is it actually working?
+
+The failure that matters is silent: a token expires or the repo moves, background syncs start
+failing, and nothing tells you until a teammate asks why you missed their fix. Three things
+guard against that.
+
+`skillsync auto status` gives you the whole picture:
+
+```
+background job:  registered, runs every 15 minutes
+Claude Code:     hooks installed
+last sync:       3m ago
+
+skills are updating automatically.
+```
+
+When something is wrong it says so, in plain language, with the fix:
+
+```
+background job:  registered, runs every 15 minutes
+Claude Code:     hooks installed
+last error:      git fetch: could not read Username for 'https://github.com'
+
+Syncs are failing: git fetch: could not read Username for 'https://github.com'
+  Fix: run `skillsync sync` to see the full error.
+```
+
+Second, **Claude Code tells you at session start.** The hook checks health before syncing and
+prints a warning into your session if syncs have been failing, so you find out while working
+rather than never. It stays silent when everything is fine.
+
+Third, **`list` and `stats` warn** if there has been no successful sync in over four hours, so
+you know when you're reading stale data.
 
 ## Configuration
 
@@ -183,15 +215,15 @@ This removes only skills that skillsync installed — anything you put in
 sudo rm /usr/local/bin/skillsync
 ```
 
-### Removing pieces individually
+### Just stop the automatic part
 
 ```sh
-skillsync daemon uninstall   # stop background syncing, keep everything else
-skillsync hook uninstall     # remove the Claude Code hooks, keep the skills
+skillsync auto off   # stop background syncing and remove the hooks; skills stay
+skillsync auto on    # turn it back on
 ```
 
-`hook uninstall` only strips skillsync's own entries from `~/.claude/settings.json`; your
-other hooks and settings stay as they are.
+This only strips skillsync's own entries from `~/.claude/settings.json`; your other hooks and
+settings stay as they are.
 
 ## Behavior notes
 

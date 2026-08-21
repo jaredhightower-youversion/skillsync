@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 )
 
 // Config lives at ~/.skillsync/config.json.
@@ -44,9 +45,25 @@ type Metrics struct {
 	Endpoint string `json:"endpoint,omitempty"` // empty = local-only stats (SPEC §8)
 }
 
+// Health records the outcome of the last sync so failures surface where people
+// look, instead of dying silently in the daemon log. A background job that
+// stopped working is the worst failure this tool has: skills quietly stop
+// updating and nobody notices for weeks.
+type Health struct {
+	LastAttempt time.Time `json:"last_attempt,omitempty"`
+	LastSuccess time.Time `json:"last_success,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
+}
+
+// stale is how long without a successful sync before we start warning. The
+// background job runs every 15 minutes, so a few missed ticks are noise; four
+// hours means something is actually wrong.
+const staleAfter = 4 * time.Hour
+
 // State tracks installs per scope. Hash mismatch on disk = local drift
 // (SPEC §5); unknown dir with matching hash = adoptable (SPEC §10).
 type State struct {
+	Health    Health                    `json:"health"`
 	Installed map[string]InstalledSkill `json:"installed"` // global scope
 	// Projects registered by running `skillsync sync` inside them; the daemon
 	// re-syncs each (SPEC §4).
@@ -138,19 +155,14 @@ func fatal(format string, args ...any) {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
-  skillsync init <git-url>       set up this machine: sync, background updates, hooks
-                                  (--no-daemon / --no-hooks to skip either)
-  skillsync sync                  sync global skills + current project (if it has skillsync.yaml)
-  skillsync sync-all              sync global skills + every registered project (daemon entry)
-  skillsync list                  list resolved skills and install status
-  skillsync add <skill>           subscribe to a skill globally
-  skillsync remove <skill>        unsubscribe a skill globally
-  skillsync adopt <skill>         replace an unmanaged local skill with the managed version
-  skillsync daemon install|uninstall|status   manage the background sync job
-  skillsync hook install|uninstall|print      Claude Code hooks (session-start sync + tracking)
-  skillsync uninstall [--keep-skills]         remove skillsync and everything it installed
-  skillsync track <skill>         record a usage event (called by hooks; --stdin reads hook JSON)
-  skillsync stats                 show local skill-usage counts
+  skillsync init <git-url>            set up this machine (--no-daemon / --no-hooks to skip a part)
+  skillsync sync                      sync now
+  skillsync list                      skills, when each changed, and who changed it
+  skillsync add|remove <skill>        manage your global subscriptions
+  skillsync adopt <skill>             replace a hand-installed skill with the managed version
+  skillsync stats                     how often each skill gets used
+  skillsync auto on|off|status        automatic updating: background job + Claude Code hooks
+  skillsync uninstall [--keep-skills] remove skillsync and everything it installed
 `)
 	os.Exit(2)
 }
@@ -169,10 +181,14 @@ func main() {
 	switch os.Args[1] {
 	case "init":
 		cmdInit(arg(2), !hasFlag("--no-daemon"), !hasFlag("--no-hooks"))
-	case "sync":
+	case "sync", "sync-all":
+		// sync-all is kept as an alias: schedulers installed by earlier
+		// versions invoke it by name.
 		cmdSync()
-	case "sync-all":
-		cmdSyncAll()
+	case "auto":
+		cmdAuto(arg(2))
+	case "check":
+		cmdCheck() // fast, offline; the session hook calls it to surface breakage
 	case "list":
 		cmdList()
 	case "add":

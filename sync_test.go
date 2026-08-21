@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -411,4 +412,55 @@ func TestLastChangedAndAge(t *testing.T) {
 	if humanAge(time.Now().Add(-50*time.Hour)) != "2d ago" {
 		t.Fatalf("50h rendered as %q", humanAge(time.Now().Add(-50*time.Hour)))
 	}
+}
+
+func TestHealthProblemDetection(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	now := time.Now().UTC()
+
+	// No background job registered is the loudest problem.
+	s := &State{Health: Health{LastSuccess: now}}
+	if p := healthProblem(s); !strings.Contains(p, "no background job") {
+		t.Fatalf("expected missing-daemon warning, got %q", p)
+	}
+
+	// With a job registered, a recent success is healthy...
+	os.MkdirAll(filepath.Dir(launchdPlistPath()), 0o755)
+	os.WriteFile(launchdPlistPath(), []byte("x"), 0o644)
+	if p := healthProblem(&State{Health: Health{LastSuccess: now}}); p != "" {
+		t.Fatalf("expected healthy, got %q", p)
+	}
+	// ...a stale success warns...
+	stale := &State{Health: Health{LastSuccess: now.Add(-30 * time.Hour)}}
+	if p := healthProblem(stale); !strings.Contains(p, "No successful sync") {
+		t.Fatalf("expected staleness warning, got %q", p)
+	}
+	// ...and a failure after the last success reports the error.
+	failing := &State{Health: Health{
+		LastSuccess: now.Add(-time.Hour),
+		LastAttempt: now,
+		LastError:   "git clone: permission denied",
+	}}
+	if p := healthProblem(failing); !strings.Contains(p, "permission denied") {
+		t.Fatalf("expected failure detail, got %q", p)
+	}
+}
+
+func TestRecordSync(t *testing.T) {
+	s := &State{}
+	recordSync(s, fmt.Errorf("boom\nsecond line"))
+	if s.Health.LastError != "boom second line" || !s.Health.LastSuccess.IsZero() {
+		t.Fatalf("failure not recorded: %+v", s.Health)
+	}
+	recordSync(s, nil)
+	if s.Health.LastError != "" || s.Health.LastSuccess.IsZero() {
+		t.Fatalf("success did not clear the error: %+v", s.Health)
+	}
+}
+
+func TestCheckIsSilentWhenHealthy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cmdCheck() // not initialized: must not panic or print
 }
