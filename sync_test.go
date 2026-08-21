@@ -27,12 +27,12 @@ func writeSkill(t *testing.T, root, name, body string) string {
 
 // Covers the SPEC §5/§10 decision table: install, up-to-date, managed drift
 // overwrite, unmanaged identical adopt, unmanaged different skip.
-func TestClaudeAdapterDecisionTable(t *testing.T) {
+func TestDirAdapterDecisionTable(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	repo := t.TempDir()
 	stateMap := map[string]InstalledSkill{}
-	a := claudeAdapter{}
+	a := adapters["claude-code"].(dirAdapter)
 
 	dir := writeSkill(t, repo, "alpha", "v1")
 	sk := Skill{Name: "alpha", Dir: dir, Source: "default"}
@@ -125,25 +125,47 @@ func TestReadManifest(t *testing.T) {
 	}
 }
 
-func TestFrontmatterAndCursor(t *testing.T) {
+func TestFrontmatterParsing(t *testing.T) {
 	repo := t.TempDir()
 	dir := writeSkill(t, repo, "fm", "---\nname: fm\ndescription: does things\n---\n\nBody here.")
 	fm, body, err := readSkillMD(dir)
 	if err != nil || fm.Description != "does things" || !strings.Contains(body, "Body here.") {
 		t.Fatalf("frontmatter: %+v body=%q err=%v", fm, body, err)
 	}
+}
+
+// Cursor reads SKILL.md natively from ~/.cursor/skills, so the adapter copies
+// rather than converting — and unlike the old rules-file version, global scope
+// must actually produce files.
+func TestCursorAdapterCopiesBothScopes(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := t.TempDir()
+	dir := writeSkill(t, repo, "cs", "---\nname: cs\ndescription: d\n---\nbody")
+	sk := Skill{Name: "cs", Dir: dir, Source: "s"}
+	a := adapters["cursor"].(dirAdapter)
+
+	if verb, err := a.Install(sk, "", map[string]InstalledSkill{}); err != nil || verb != "installed" {
+		t.Fatalf("global install: verb=%q err=%v", verb, err)
+	}
+	global := filepath.Join(home, ".cursor", "skills", "cs", "SKILL.md")
+	if _, err := os.Stat(global); err != nil {
+		t.Fatalf("cursor global skill missing: %v", err)
+	}
 
 	proj := t.TempDir()
-	if _, err := (cursorAdapter{}).Install(Skill{Name: "fm", Dir: dir}, proj, nil); err != nil {
+	if verb, err := a.Install(sk, proj, map[string]InstalledSkill{}); err != nil || verb != "installed" {
+		t.Fatalf("project install: verb=%q err=%v", verb, err)
+	}
+	if _, err := os.Stat(filepath.Join(proj, ".cursor", "skills", "cs", "SKILL.md")); err != nil {
+		t.Fatalf("cursor project skill missing: %v", err)
+	}
+
+	if err := a.Remove("cs", ""); err != nil {
 		t.Fatal(err)
 	}
-	mdc, _ := os.ReadFile(filepath.Join(proj, ".cursor", "rules", "fm.mdc"))
-	if !strings.Contains(string(mdc), `description: "does things"`) || !strings.Contains(string(mdc), "Body here.") {
-		t.Fatalf("bad mdc: %s", mdc)
-	}
-	// Global scope is a no-op for cursor.
-	if _, err := (cursorAdapter{}).Install(Skill{Name: "fm", Dir: dir}, "", nil); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(global); !os.IsNotExist(err) {
+		t.Fatal("cursor global skill not removed")
 	}
 }
 
@@ -311,7 +333,7 @@ func TestAdapterRemove(t *testing.T) {
 	dir := writeSkill(t, repo, "gone", "---\nname: gone\ndescription: d\n---\nbody")
 	sk := Skill{Name: "gone", Dir: dir, Source: "s"}
 
-	for _, a := range []Adapter{claudeAdapter{}, cursorAdapter{}, codexAdapter{}} {
+	for _, a := range []Adapter{adapters["claude-code"], adapters["cursor"], adapters["codex"]} {
 		if _, err := a.Install(sk, proj, map[string]InstalledSkill{}); err != nil {
 			t.Fatal(err)
 		}
@@ -322,8 +344,8 @@ func TestAdapterRemove(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(proj, ".claude", "skills", "gone")); !os.IsNotExist(err) {
 		t.Fatal("claude skill not removed")
 	}
-	if _, err := os.Stat(filepath.Join(proj, ".cursor", "rules", "gone.mdc")); !os.IsNotExist(err) {
-		t.Fatal("cursor rule not removed")
+	if _, err := os.Stat(filepath.Join(proj, ".cursor", "skills", "gone")); !os.IsNotExist(err) {
+		t.Fatal("cursor skill not removed")
 	}
 	agents, _ := os.ReadFile(filepath.Join(proj, "AGENTS.md"))
 	if strings.Contains(string(agents), "### gone") {
@@ -331,18 +353,6 @@ func TestAdapterRemove(t *testing.T) {
 	}
 }
 
-func TestYAMLScalarEscaping(t *testing.T) {
-	repo := t.TempDir()
-	proj := t.TempDir()
-	dir := writeSkill(t, repo, "y", "---\nname: y\ndescription: Review code: find bugs, \"fast\"\n---\nbody")
-	if _, err := (cursorAdapter{}).Install(Skill{Name: "y", Dir: dir}, proj, nil); err != nil {
-		t.Fatal(err)
-	}
-	mdc, _ := os.ReadFile(filepath.Join(proj, ".cursor", "rules", "y.mdc"))
-	if !strings.Contains(string(mdc), `description: "Review code: find bugs, \"fast\""`) {
-		t.Fatalf("description not YAML-escaped:\n%s", mdc)
-	}
-}
 
 func TestHookUninstallPreservesOtherHooks(t *testing.T) {
 	home := t.TempDir()

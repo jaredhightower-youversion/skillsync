@@ -23,23 +23,36 @@ type Adapter interface {
 	Remove(name, projectRoot string) error
 }
 
+// Claude Code and Cursor both read SKILL.md directories natively, so both are
+// plain copies into different paths — no translation, and both get the §5/§10
+// drift/adopt handling, since either target is somewhere a user may also have
+// installed a skill by hand.
 var adapters = map[string]Adapter{
-	"claude-code": claudeAdapter{},
-	"cursor":      cursorAdapter{},
-	"codex":       codexAdapter{},
+	"claude-code": dirAdapter{
+		global:  func() string { return claudeGlobalDir() },
+		project: func(root string) string { return filepath.Join(root, ".claude", "skills") },
+	},
+	"cursor": dirAdapter{
+		global:  func() string { return filepath.Join(homeDir(), ".cursor", "skills") },
+		project: func(root string) string { return filepath.Join(root, ".cursor", "skills") },
+	},
+	"codex": codexAdapter{},
 }
 
 func claudeGlobalDir() string { return filepath.Join(homeDir(), ".claude", "skills") }
 
-// claudeAdapter copies the skill directory verbatim — SKILL.md is Claude
-// Code's native format. It owns the §5/§10 drift/adopt decision table because
-// its output is a byte-for-byte copy the user may also have installed by hand.
-type claudeAdapter struct{}
+// dirAdapter installs a skill by copying its directory to a tool's skills
+// path. It owns the §5/§10 drift/adopt decision table because its output is a
+// byte-for-byte copy the user may also have installed by hand.
+type dirAdapter struct {
+	global  func() string
+	project func(root string) string
+}
 
-func (claudeAdapter) Install(sk Skill, projectRoot string, stateMap map[string]InstalledSkill) (string, error) {
-	base := claudeGlobalDir()
+func (a dirAdapter) Install(sk Skill, projectRoot string, stateMap map[string]InstalledSkill) (string, error) {
+	base := a.global()
 	if projectRoot != "" {
-		base = filepath.Join(projectRoot, ".claude", "skills")
+		base = a.project(projectRoot)
 	}
 	srcHash, err := hashDir(sk.Dir)
 	if err != nil {
@@ -87,44 +100,12 @@ func (claudeAdapter) Install(sk Skill, projectRoot string, stateMap map[string]I
 	return verb, nil
 }
 
-func (claudeAdapter) Remove(name, projectRoot string) error {
-	base := claudeGlobalDir()
+func (a dirAdapter) Remove(name, projectRoot string) error {
+	base := a.global()
 	if projectRoot != "" {
-		base = filepath.Join(projectRoot, ".claude", "skills")
+		base = a.project(projectRoot)
 	}
 	return os.RemoveAll(filepath.Join(base, name))
-}
-
-// cursorAdapter generates .cursor/rules/<name>.mdc from SKILL.md. Cursor rules
-// are project-scoped only; global scope is a no-op. Generated files are
-// regenerated atomically every sync (Ruler-style) — local edits to generated
-// artifacts are not preserved by design.
-type cursorAdapter struct{}
-
-func (cursorAdapter) Install(sk Skill, projectRoot string, _ map[string]InstalledSkill) (string, error) {
-	if projectRoot == "" {
-		return "", nil
-	}
-	fm, body, err := readSkillMD(sk.Dir)
-	if err != nil {
-		return "", err
-	}
-	content := fmt.Sprintf("---\ndescription: %s\nalwaysApply: false\n---\n\n%s", yamlScalar(fm.Description), body)
-	dest := filepath.Join(projectRoot, ".cursor", "rules", sk.Name+".mdc")
-	return "", writeIfChanged(dest, []byte(content))
-}
-
-// yamlScalar quotes a value so descriptions containing ": ", "#", or a leading
-// YAML indicator can't produce an unparseable frontmatter block.
-func yamlScalar(s string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", " ").Replace(s) + `"`
-}
-
-func (cursorAdapter) Remove(name, projectRoot string) error {
-	if projectRoot == "" {
-		return nil
-	}
-	return os.Remove(filepath.Join(projectRoot, ".cursor", "rules", name+".mdc"))
 }
 
 // codexAdapter maintains a managed section in AGENTS.md (global: ~/.codex/,

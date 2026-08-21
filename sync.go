@@ -318,12 +318,13 @@ func syncProject(cfg *Config, state *State, resolved []Skill, root string) {
 	fmt.Printf("project sync (%s): %d changed\n", filepath.Base(root), changed)
 }
 
-// applyAdapters runs every enabled adapter for one skill+scope and returns the
-// change verb. The Claude Code adapter reports it (it owns the install record);
-// when that adapter is not enabled, the generated adapters carry the state
-// entry themselves so status reporting and uninstall still work.
+// applyAdapters runs every enabled adapter for one skill+scope and returns a
+// verb describing what changed, or "" when everything was already up to date.
+// The copying adapters maintain the install record; AGENTS.md-style adapters
+// report nothing, so when only those are enabled we record the install here to
+// keep status reporting and uninstall working.
 func applyAdapters(cfg *Config, sk Skill, projectRoot string, stateMap map[string]InstalledSkill) string {
-	verb, sawClaude, installed := "", false, false
+	verb, reported, installed := "", false, false
 	for _, tool := range cfg.Tools {
 		a, ok := adapters[tool]
 		if !ok {
@@ -336,11 +337,14 @@ func applyAdapters(cfg *Config, sk Skill, projectRoot string, stateMap map[strin
 			continue
 		}
 		installed = true
-		if tool == "claude-code" {
-			sawClaude, verb = true, v
+		if _, copies := a.(dirAdapter); copies {
+			reported = true
+			if verb == "" {
+				verb = v
+			}
 		}
 	}
-	if !sawClaude && installed {
+	if !reported && installed {
 		hash, err := hashDir(sk.Dir)
 		if err != nil {
 			return ""
