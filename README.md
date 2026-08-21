@@ -160,7 +160,10 @@ you know when you're reading stale data.
 
 - **sources** — precedence-ordered; first source wins name collisions. `pin` (tag/commit)
   freezes a source for change control; omit to track the default branch.
-- **tools** — adapter targets. Default: `claude-code` only.
+- **tools** — which agent tools to install into. Default: `claude-code` only.
+  Available: `claude-code` (`~/.claude/skills`), `cursor` (`~/.cursor/skills`),
+  `codex` (`~/.agents/skills`). Each also installs project-locally under the
+  same relative path.
 - **metrics.endpoint** — optional sink for usage events; must be `https://` (cleartext is
   refused, since events name what you are working on). Omit for local-only stats.
 

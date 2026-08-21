@@ -23,11 +23,21 @@ Repo stores skills in a canonical format: frontmatter (name, description, metada
 
 Adapters translate/install into each tool's expected location and shape:
 
-| Tool | Target |
+| Tool | Target (global / project) |
 |------|--------|
-| Claude Code | `~/.claude/skills/` (global), `.claude/skills/` (project) — near-passthrough |
-| Cursor | `.cursor/rules/*.mdc` (frontmatter mapped to rule metadata) |
-| OpenAI Codex CLI | `AGENTS.md` managed section / per-skill files per Codex conventions |
+| Claude Code | `~/.claude/skills/` / `.claude/skills/` |
+| Cursor | `~/.cursor/skills/` / `.cursor/skills/` |
+| OpenAI Codex CLI | `~/.agents/skills/` / `.agents/skills/` |
+
+**Revised 2026-08-20.** All three tools read `SKILL.md` directories natively, so every adapter
+is a plain copy — no format translation, and all share the §5/§10 drift/adopt handling. The
+earlier design (Cursor `.mdc` rules, Codex managed section in `AGENTS.md`) was wrong on both
+counts: it was lossy, and Cursor's global scope silently produced no files at all. Codex paths
+per OpenAI's skills docs (learn.chatgpt.com/docs/build-skills, checked 2026-08-20); `AGENTS.md`
+is a separate mechanism for general instructions and is left untouched.
+
+Unverified: whether Codex still reads the older `~/.codex/skills/` as a legacy fallback. We
+write only the documented location.
 
 v1 targets: Claude Code, Cursor, Codex CLI. Copilot later. Adapter interface is the extension point for new tools.
 

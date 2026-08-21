@@ -125,15 +125,6 @@ func TestReadManifest(t *testing.T) {
 	}
 }
 
-func TestFrontmatterParsing(t *testing.T) {
-	repo := t.TempDir()
-	dir := writeSkill(t, repo, "fm", "---\nname: fm\ndescription: does things\n---\n\nBody here.")
-	fm, body, err := readSkillMD(dir)
-	if err != nil || fm.Description != "does things" || !strings.Contains(body, "Body here.") {
-		t.Fatalf("frontmatter: %+v body=%q err=%v", fm, body, err)
-	}
-}
-
 // Cursor reads SKILL.md natively from ~/.cursor/skills, so the adapter copies
 // rather than converting — and unlike the old rules-file version, global scope
 // must actually produce files.
@@ -169,59 +160,35 @@ func TestCursorAdapterCopiesBothScopes(t *testing.T) {
 	}
 }
 
-func TestCodexManagedSection(t *testing.T) {
+// Codex reads .agents/skills, the cross-tool location; AGENTS.md is a separate
+// mechanism and must not be touched.
+func TestCodexAdapterUsesAgentsSkills(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	repo := t.TempDir()
-	dir := writeSkill(t, repo, "cx", "---\nname: cx\ndescription: codex skill\n---\ninstructions v1")
 	proj := t.TempDir()
-	os.WriteFile(filepath.Join(proj, "AGENTS.md"), []byte("# My project notes\n"), 0o644)
+	dir := writeSkill(t, repo, "cx", "---\nname: cx\ndescription: d\n---\nbody")
+	sk := Skill{Name: "cx", Dir: dir, Source: "s"}
+	a := adapters["codex"].(dirAdapter)
 
-	a := codexAdapter{}
-	if _, err := a.Install(Skill{Name: "cx", Dir: dir}, proj, nil); err != nil {
+	existing := filepath.Join(proj, "AGENTS.md")
+	os.WriteFile(existing, []byte("# My project notes\n"), 0o644)
+
+	if _, err := a.Install(sk, "", map[string]InstalledSkill{}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := os.ReadFile(filepath.Join(proj, "AGENTS.md"))
-	if !strings.Contains(string(got), "# My project notes") || !strings.Contains(string(got), "instructions v1") {
-		t.Fatalf("user content lost or skill missing:\n%s", got)
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "cx", "SKILL.md")); err != nil {
+		t.Fatalf("codex global skill missing: %v", err)
 	}
-
-	// Update replaces the block, no duplication; user content preserved.
-	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: cx\ndescription: codex skill\n---\ninstructions v2"), 0o644)
-	if _, err := a.Install(Skill{Name: "cx", Dir: dir}, proj, nil); err != nil {
+	if _, err := a.Install(sk, proj, map[string]InstalledSkill{}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = os.ReadFile(filepath.Join(proj, "AGENTS.md"))
-	s := string(got)
-	if strings.Contains(s, "instructions v1") || !strings.Contains(s, "instructions v2") {
-		t.Fatalf("stale block not replaced:\n%s", s)
+	if _, err := os.Stat(filepath.Join(proj, ".agents", "skills", "cx", "SKILL.md")); err != nil {
+		t.Fatalf("codex project skill missing: %v", err)
 	}
-	if strings.Count(s, "### cx") != 1 || strings.Count(s, codexStart) != 1 {
-		t.Fatalf("duplicated section:\n%s", s)
-	}
-
-	// A skill body containing its own h3 must not orphan the remainder: three
-	// syncs used to leak a stale copy of everything after the heading.
-	os.WriteFile(filepath.Join(dir, "SKILL.md"),
-		[]byte("---\nname: cx\ndescription: codex skill\n---\nintro\n\n### Usage\nrun it"), 0o644)
-	for i := 0; i < 3; i++ {
-		if _, err := a.Install(Skill{Name: "cx", Dir: dir}, proj, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, _ = os.ReadFile(filepath.Join(proj, "AGENTS.md"))
-	if n := strings.Count(string(got), "### Usage"); n != 1 {
-		t.Fatalf("h3 in body orphaned %d copies:\n%s", n, got)
-	}
-
-	// Second skill appends inside the same managed region.
-	dir2 := writeSkill(t, repo, "cy", "---\nname: cy\ndescription: second\n---\nsecond body")
-	if _, err := a.Install(Skill{Name: "cy", Dir: dir2}, proj, nil); err != nil {
-		t.Fatal(err)
-	}
-	got, _ = os.ReadFile(filepath.Join(proj, "AGENTS.md"))
-	if !strings.Contains(string(got), "### cy") || strings.Count(string(got), codexStart) != 1 {
-		t.Fatalf("second skill not merged into region:\n%s", got)
+	got, _ := os.ReadFile(existing)
+	if string(got) != "# My project notes\n" {
+		t.Fatalf("AGENTS.md must not be modified, got:\n%s", got)
 	}
 }
 
@@ -347,9 +314,8 @@ func TestAdapterRemove(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(proj, ".cursor", "skills", "gone")); !os.IsNotExist(err) {
 		t.Fatal("cursor skill not removed")
 	}
-	agents, _ := os.ReadFile(filepath.Join(proj, "AGENTS.md"))
-	if strings.Contains(string(agents), "### gone") {
-		t.Fatalf("codex section not removed:\n%s", agents)
+	if _, err := os.Stat(filepath.Join(proj, ".agents", "skills", "gone")); !os.IsNotExist(err) {
+		t.Fatal("codex skill not removed")
 	}
 }
 
