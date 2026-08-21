@@ -10,7 +10,7 @@ import (
 const manifestName = "skillsync.yaml"
 
 // readManifest parses the project manifest (SPEC §4). Deliberately a YAML
-// subset — comments plus one list — so we stay stdlib-only:
+// subset (comments plus one list) so we stay stdlib-only:
 //
 //	# team skills for this project
 //	skills:

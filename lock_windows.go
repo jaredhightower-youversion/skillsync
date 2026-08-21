@@ -12,7 +12,7 @@ import (
 // lockSync serializes syncs on Windows using exclusive file creation. Windows
 // has no flock; O_EXCL on a lock file gives the same "second run backs off"
 // behavior. A stale lock left by a killed process is cleared on the next run
-// once it is older than one hour — a sync never legitimately takes that long.
+// once it is older than one hour. A sync never legitimately takes that long.
 func lockSync() func() {
 	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
 		fatal("create state dir: %v", err)

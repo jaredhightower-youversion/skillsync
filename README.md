@@ -1,6 +1,6 @@
 # skillsync
 
-Team skill directory with background auto-sync. Edit a skill once in your team's git repo —
+Team skill directory with background auto-sync. Edit a skill once in your team's git repo , 
 every teammate's machine updates automatically across Claude Code, Cursor, and Codex.
 No update command, no drift, with usage metrics to show which skills earn their keep.
 
@@ -37,7 +37,7 @@ Done. Skills appear in `~/.claude/skills/` and update on their own.
 ## Team skill repo
 
 Any git repo where each skill is a directory containing a `SKILL.md`
-([skills.sh](https://www.skills.sh) conventions — repos work with `npx skills add` too):
+([skills.sh](https://www.skills.sh) conventions, repos work with `npx skills add` too):
 
 ```
 skills/
@@ -45,7 +45,7 @@ skills/
   deploy-checklist/SKILL.md
 ```
 
-Edit a skill, merge the PR — everyone has the new version within 15 minutes.
+Edit a skill, merge the PR, everyone has the new version within 15 minutes.
 
 ## Project skills
 
@@ -107,7 +107,7 @@ Two things to know about the numbers:
   A team living mostly in Cursor will see numbers that undercount real usage.
 
 By default the counts never leave your machine. Set `metrics.endpoint` in the config to send
-them to a team collector instead — see below.
+them to a team collector instead, see below.
 
 ## Is it actually working?
 
@@ -158,20 +158,20 @@ you know when you're reading stale data.
 }
 ```
 
-- **sources** — precedence-ordered; first source wins name collisions. `pin` (tag/commit)
+- **sources**, precedence-ordered; first source wins name collisions. `pin` (tag/commit)
   freezes a source for change control; omit to track the default branch.
-- **tools** — which agent tools to install into. Default: `claude-code` only.
+- **tools**, which agent tools to install into. Default: `claude-code` only.
   Available: `claude-code` (`~/.claude/skills`), `cursor` (`~/.cursor/skills`),
   `codex` (`~/.agents/skills`). Each also installs project-locally under the
   same relative path.
-- **metrics.endpoint** — optional sink for usage events; must be `https://` (cleartext is
+- **metrics.endpoint**, optional sink for usage events; must be `https://` (cleartext is
   refused, since events name what you are working on). Omit for local-only stats.
 
 ## ⚠️ Local edits get overwritten
 
 Skills installed by skillsync are **managed files**. If you edit one on your machine
-(e.g. `~/.claude/skills/code-review/SKILL.md`), the next background sync — within 15
-minutes — **replaces it with the team version and your changes are lost**. Sync overrides;
+(e.g. `~/.claude/skills/code-review/SKILL.md`), the next background sync, within 15
+minutes, **replaces it with the team version and your changes are lost**. Sync overrides;
 it never merges. A warning is printed, but background syncs only log it to
 `~/.skillsync/daemon.log`, so you may not see it before the overwrite.
 
@@ -179,9 +179,9 @@ This is deliberate: silent local forks are the drift problem this tool exists to
 
 What to do instead:
 
-- **Improve a skill for everyone** — edit it in the team skill repo and merge a PR.
+- **Improve a skill for everyone**, edit it in the team skill repo and merge a PR.
   Every machine gets it within 15 minutes.
-- **Keep a personal variant** — copy the skill directory under a new name
+- **Keep a personal variant**, copy the skill directory under a new name
   (e.g. `code-review-mine`). Unmanaged names are never touched.
 - **Skills you installed by hand** (before skillsync, or via `npx skills add`) are safe:
   same content gets adopted into management; different content is never overwritten unless
@@ -211,7 +211,7 @@ skillsync uninstall                  # skills, background job, hooks, and ~/.ski
 skillsync uninstall --keep-skills    # same, but leave the skill files on disk
 ```
 
-This removes only skills that skillsync installed — anything you put in
+This removes only skills that skillsync installed, anything you put in
 `~/.claude/skills/` yourself is left alone. Then delete the binary:
 
 ```sh
@@ -240,7 +240,7 @@ settings stay as they are.
 
 ## Release
 
-Tag and push — CI cross-compiles and attaches binaries:
+Tag and push, CI cross-compiles and attaches binaries:
 
 ```sh
 git tag v0.1.0 && git push origin v0.1.0

@@ -18,7 +18,7 @@ import (
 func claudeSettingsPath() string { return filepath.Join(homeDir(), ".claude", "settings.json") }
 
 // readClaudeSettings returns the parsed settings file, or an empty map when it
-// does not exist. A malformed file is fatal rather than silently replaced —
+// does not exist. A malformed file is fatal rather than silently replaced , 
 // it holds the user's own configuration.
 func readClaudeSettings() (map[string]any, bool) {
 	settings := map[string]any{}
@@ -27,7 +27,7 @@ func readClaudeSettings() (map[string]any, bool) {
 		return settings, false
 	}
 	if err := json.Unmarshal(b, &settings); err != nil {
-		fatal("parse %s: %v — fix it or use `skillsync hook print` and edit by hand", claudeSettingsPath(), err)
+		fatal("parse %s: %v, fix it or use `skillsync hook print` and edit by hand", claudeSettingsPath(), err)
 	}
 	return settings, true
 }
@@ -132,7 +132,7 @@ func cmdHook(sub string) {
 }
 
 // hasSkillsyncHook reports whether any hook command in the list mentions
-// skillsync — the idempotency check for `hook install`.
+// skillsync, the idempotency check for `hook install`.
 func hasSkillsyncHook(list []any) bool {
 	b, _ := json.Marshal(list)
 	return strings.Contains(string(b), "skillsync")

@@ -13,7 +13,7 @@ import (
 // anyone, and you find out weeks later when a teammate asks why you did not
 // get their fix. So every sync records its outcome, and three places report it:
 //
-//	skillsync check    fast and offline — the session-start hook runs it, so
+//	skillsync check    fast and offline. The session-start hook runs it, so
 //	                   breakage shows up inside the agent session
 //	skillsync auto     the full picture: job registered? hooks installed?
 //	                   last successful sync?
@@ -77,7 +77,7 @@ func healthProblem(state *State) string {
 		return fmt.Sprintf("Syncs are failing: %s\n  Fix: run `skillsync sync` to see the full error.", h.LastError)
 	}
 	if !h.LastSuccess.IsZero() && time.Since(h.LastSuccess) > staleAfter {
-		return fmt.Sprintf("No successful sync in %s — your skills may be out of date.\n"+
+		return fmt.Sprintf("No successful sync in %s. Your skills may be out of date.\n"+
 			"  Fix: run `skillsync sync` to see what is wrong.", humanAge(h.LastSuccess))
 	}
 	return ""
@@ -103,7 +103,7 @@ func warnIfUnhealthy() {
 	if h.LastSuccess.IsZero() || time.Since(h.LastSuccess) <= staleAfter {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "skillsync: last successful sync was %s — run `skillsync auto status`\n",
+	fmt.Fprintf(os.Stderr, "skillsync: last successful sync was %s. Run `skillsync auto status`\n",
 		humanAge(h.LastSuccess))
 }
 

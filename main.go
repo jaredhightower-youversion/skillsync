@@ -18,7 +18,7 @@ type Config struct {
 	// Adapter targets. Default: claude-code only; users opt into others.
 	Tools []string `json:"tools"`
 	// Global subscriptions (SPEC §4). Unset (nil) = subscribe to everything,
-	// the indie-friendly default. An explicitly emptied list means "none" —
+	// the indie-friendly default. An explicitly emptied list means "none" , 
 	// unsubscribing your last skill must not silently install every skill in
 	// every source.
 	GlobalSkills *[]string `json:"global_skills,omitempty"`
@@ -214,7 +214,7 @@ func main() {
 
 // cmdInit is the whole onboarding: point at a repo and the machine is set up.
 // The background job and hooks are what make skills update without anyone
-// running a command, so they are on by default — a tool that silently never
+// running a command, so they are on by default, a tool that silently never
 // auto-updates is the failure this project exists to prevent. Either can be
 // declined, and neither failing is fatal: the config and skills are still
 // good, so we warn and carry on rather than leaving a half-initialized state.
@@ -223,7 +223,7 @@ func cmdInit(url string, withDaemon, withHooks bool) {
 		fatal("already initialized (%s); edit it to change sources", configPath())
 	}
 	src := Source{Name: "default", URL: url}
-	// Prove the URL works before persisting it — otherwise a typo leaves a
+	// Prove the URL works before persisting it, otherwise a typo leaves a
 	// config that makes every retry of `init` refuse to run.
 	if _, err := fetchSource(src); err != nil {
 		fatal("cannot use %s: %v", url, err)
@@ -245,7 +245,7 @@ func cmdInit(url string, withDaemon, withHooks bool) {
 	if withHooks {
 		runStep("Claude Code hooks", func() { cmdHook("install") })
 	}
-	fmt.Println("\nready — skills stay up to date on their own. `skillsync list` to see them.")
+	fmt.Println("\nready, skills stay up to date on their own. `skillsync list` to see them.")
 }
 
 // runStep runs an optional setup step, turning a fatal into a warning so one
@@ -265,7 +265,7 @@ func runStep(label string, step func()) {
 func cmdSubscribe(name string, add bool) {
 	cfg, err := loadConfig()
 	if err != nil {
-		fatal("not initialized — run: skillsync init <git-url>")
+		fatal("not initialized. Run: skillsync init <git-url>")
 	}
 	// First explicit `add` narrows an unset (= everything) list to a chosen set;
 	// first explicit `remove` needs the resolved set to subtract from.

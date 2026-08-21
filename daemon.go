@@ -31,7 +31,7 @@ func cmdDaemon(sub string) {
 	case "windows":
 		daemonWindows(sub)
 	default:
-		fatal("daemon not supported on %s yet — schedule `skillsync sync-all` with your OS scheduler", runtime.GOOS)
+		fatal("daemon not supported on %s yet, schedule `skillsync sync-all` with your OS scheduler", runtime.GOOS)
 	}
 }
 

@@ -21,7 +21,7 @@ type Adapter interface {
 }
 
 // Claude Code and Cursor both read SKILL.md directories natively, so both are
-// plain copies into different paths — no translation, and both get the §5/§10
+// plain copies into different paths, no translation, and both get the §5/§10
 // drift/adopt handling, since either target is somewhere a user may also have
 // installed a skill by hand.
 var adapters = map[string]Adapter{
@@ -76,10 +76,10 @@ func (a dirAdapter) Install(sk Skill, projectRoot string, stateMap map[string]In
 			return "", err
 		}
 		if destHash != srcHash {
-			// SPEC §10: same name, different content, not ours — never touch.
+			// SPEC §10: same name, different content, not ours, never touch.
 			return "", fmt.Errorf("skipped: unmanaged local skill differs from source; run `skillsync adopt %s` or rename yours", sk.Name)
 		}
-		verb = "adopted" // §10: identical content — take ownership, no rewrite
+		verb = "adopted" // §10: identical content, take ownership, no rewrite
 	case destExists && managed:
 		destHash, err := hashDir(dest)
 		if err != nil {
@@ -90,7 +90,7 @@ func (a dirAdapter) Install(sk Skill, projectRoot string, stateMap map[string]In
 		}
 		if destHash != rec.Hash {
 			// SPEC §5: managed = overwrite, but surface the drift.
-			fmt.Fprintf(os.Stderr, "skillsync: %s: local edits overwritten — edit skills in the source repo (%s)\n", sk.Name, sk.Source)
+			fmt.Fprintf(os.Stderr, "skillsync: %s: local edits overwritten, edit skills in the source repo (%s)\n", sk.Name, sk.Source)
 		}
 		verb = "updated"
 	}

@@ -181,7 +181,7 @@ func cmdSync() {
 
 	cfg, err := loadConfig()
 	if err != nil {
-		fatal("not initialized — run: skillsync init <git-url>")
+		fatal("not initialized. Run: skillsync init <git-url>")
 	}
 	if len(cfg.Sources) == 0 {
 		fatal("no sources configured in %s", configPath())
@@ -213,7 +213,7 @@ func cmdSync() {
 func mustResolve() (*Config, *State, []Skill) {
 	cfg, err := loadConfig()
 	if err != nil {
-		fatal("not initialized — run: skillsync init <git-url>")
+		fatal("not initialized. Run: skillsync init <git-url>")
 	}
 	if len(cfg.Sources) == 0 {
 		fatal("no sources configured in %s", configPath())
@@ -360,7 +360,7 @@ func applyAdapters(cfg *Config, sk Skill, projectRoot string, stateMap map[strin
 
 // cmdAdopt resolves a §10 conflict by replacing the unmanaged copy with the
 // managed version. Scope follows the caller: inside a project with a manifest
-// it adopts the project copy, otherwise the global one — the skip warning is
+// it adopts the project copy, otherwise the global one, the skip warning is
 // raised per scope, so it must be resolvable per scope.
 func cmdAdopt(name string) {
 	cfg, state, resolved := mustResolve()
@@ -389,7 +389,7 @@ func cmdAdopt(name string) {
 		}
 	}
 	if verb := applyAdapters(cfg, sk, root, scopeMap); verb == "" {
-		fatal("adopt %s: nothing installed — check the tools list in %s", name, configPath())
+		fatal("adopt %s: nothing installed, check the tools list in %s", name, configPath())
 	}
 	mustSaveState(state)
 	fmt.Printf("adopted    %s (now managed, %s)\n", name, scope)
@@ -398,7 +398,7 @@ func cmdAdopt(name string) {
 // cmdUninstall removes everything skillsync put on this machine: managed
 // skills in every scope it installed into, the background job, the Claude Code
 // hooks, and its own state directory. Skills the user installed by hand are
-// untouched — they were never in the install record.
+// untouched, they were never in the install record.
 func cmdUninstall(keepSkills bool) {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -421,7 +421,7 @@ func cmdUninstall(keepSkills bool) {
 		fatal("remove %s: %v", stateDir(), err)
 	}
 	fmt.Printf("removed %s\n", stateDir())
-	fmt.Println("done — delete the skillsync binary itself to finish")
+	fmt.Println("done, delete the skillsync binary itself to finish")
 }
 
 // cmdList shows every resolved skill, newest change first, so "what changed

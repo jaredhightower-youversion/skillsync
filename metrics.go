@@ -16,7 +16,7 @@ import (
 // Metrics (SPEC §8): exact events from Claude Code's PostToolUse Skill hook,
 // appended locally as JSONL, batched to a configurable HTTPS sink during sync.
 // No endpoint configured = local-only stats. Cursor/Codex approximate
-// log-parsing is a spec open item — not implemented.
+// log-parsing is a spec open item, not implemented.
 
 // metricsClient is a package var so tests can point it at a local test sink.
 var metricsClient = &http.Client{Timeout: 10 * time.Second}

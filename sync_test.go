@@ -50,7 +50,7 @@ func TestDirAdapterDecisionTable(t *testing.T) {
 		t.Fatalf("up-to-date: verb=%q err=%v", verb, err)
 	}
 
-	// Managed drift: local edit then upstream change — must overwrite (§5).
+	// Managed drift: local edit then upstream change, must overwrite (§5).
 	installed := filepath.Join(claudeGlobalDir(), "alpha", "SKILL.md")
 	os.WriteFile(installed, []byte("local hack"), 0o644)
 	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("v2"), 0o644)
@@ -126,7 +126,7 @@ func TestReadManifest(t *testing.T) {
 }
 
 // Cursor reads SKILL.md natively from ~/.cursor/skills, so the adapter copies
-// rather than converting — and unlike the old rules-file version, global scope
+// rather than converting, and unlike the old rules-file version, global scope
 // must actually produce files.
 func TestCursorAdapterCopiesBothScopes(t *testing.T) {
 	home := t.TempDir()
