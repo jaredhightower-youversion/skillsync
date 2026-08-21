@@ -1,4 +1,4 @@
-# skillsync
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/header/grid.svg?title=skillsync&amp;subtitle=Team+skills+that+update+themselves&amp;mode=dark"><img alt="skillsync" src="https://shieldcn.dev/header/grid.svg?title=skillsync&amp;subtitle=Team+skills+that+update+themselves&amp;mode=light"></picture>
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/stars/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="GitHub Stars" src="https://www.shieldcn.dev/github/stars/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
 <picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/forks/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="GitHub Forks" src="https://www.shieldcn.dev/github/forks/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
