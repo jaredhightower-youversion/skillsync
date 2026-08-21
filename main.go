@@ -18,7 +18,7 @@ type Config struct {
 	// Adapter targets. Default: claude-code only; users opt into others.
 	Tools []string `json:"tools"`
 	// Global subscriptions (SPEC §4). Unset (nil) = subscribe to everything,
-	// the indie-friendly default. An explicitly emptied list means "none" , 
+	// the indie-friendly default. An explicitly emptied list means "none",
 	// unsubscribing your last skill must not silently install every skill in
 	// every source.
 	GlobalSkills *[]string `json:"global_skills,omitempty"`

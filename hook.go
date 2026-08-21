@@ -18,7 +18,7 @@ import (
 func claudeSettingsPath() string { return filepath.Join(homeDir(), ".claude", "settings.json") }
 
 // readClaudeSettings returns the parsed settings file, or an empty map when it
-// does not exist. A malformed file is fatal rather than silently replaced , 
+// does not exist. A malformed file is fatal rather than silently replaced, since
 // it holds the user's own configuration.
 func readClaudeSettings() (map[string]any, bool) {
 	settings := map[string]any{}

@@ -1,6 +1,6 @@
 # skillsync
 
-Team skill directory with background auto-sync. Edit a skill once in your team's git repo , 
+Team skill directory with background auto-sync. Edit a skill once in your team's git repo and
 every teammate's machine updates automatically across Claude Code, Cursor, and Codex.
 No update command, no drift, with usage metrics to show which skills earn their keep.
 
