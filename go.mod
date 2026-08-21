@@ -1,3 +1,3 @@
-module github.com/jaredhightower/skillsync
+module github.com/jaredhightower-youversion/skillsync
 
 go 1.23

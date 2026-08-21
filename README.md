@@ -1,5 +1,21 @@
 # skillsync
 
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/stars/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="GitHub Stars" src="https://www.shieldcn.dev/github/stars/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/forks/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="GitHub Forks" src="https://www.shieldcn.dev/github/forks/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/watchers/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Watchers" src="https://www.shieldcn.dev/github/watchers/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/branches/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=dark"><img alt="Branches" src="https://www.shieldcn.dev/github/branches/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/contributors/jaredhightower-youversion/skillsync.svg?theme=emerald&amp;size=sm&amp;mode=dark"><img alt="Contributors" src="https://www.shieldcn.dev/github/contributors/jaredhightower-youversion/skillsync.svg?theme=emerald&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/last-commit/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Last commit" src="https://www.shieldcn.dev/github/last-commit/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/commits/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Commits" src="https://www.shieldcn.dev/github/commits/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/open-issues/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Open issues" src="https://www.shieldcn.dev/github/open-issues/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/closed-issues/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=dark"><img alt="Closed issues" src="https://www.shieldcn.dev/github/closed-issues/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/open-prs/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="Open PRs" src="https://www.shieldcn.dev/github/open-prs/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/closed-prs/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=dark"><img alt="Closed PRs" src="https://www.shieldcn.dev/github/closed-prs/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/merged-prs/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=dark"><img alt="Merged PRs" src="https://www.shieldcn.dev/github/merged-prs/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/release/jaredhightower-youversion/skillsync.svg?size=sm&amp;mode=dark"><img alt="Release" src="https://www.shieldcn.dev/github/release/jaredhightower-youversion/skillsync.svg?size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/ci/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=dark"><img alt="CI" src="https://www.shieldcn.dev/github/ci/jaredhightower-youversion/skillsync.svg?variant=secondary&amp;size=sm&amp;mode=light"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="https://www.shieldcn.dev/github/license/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=dark"><img alt="License" src="https://www.shieldcn.dev/github/license/jaredhightower-youversion/skillsync.svg?variant=ghost&amp;size=sm&amp;mode=light"></picture>
+
 Team skill directory with background auto-sync. Edit a skill once in your team's git repo and
 every teammate's machine updates automatically across Claude Code, Cursor, and Codex.
 No update command, no drift, with usage metrics to show which skills earn their keep.
@@ -19,7 +35,7 @@ sudo mv skillsync-darwin-arm64 /usr/local/bin/skillsync
 Or with Go installed:
 
 ```sh
-go install github.com/OWNER/skillsync@latest
+go install github.com/jaredhightower-youversion/skillsync@latest
 ```
 
 ## Setup (one time, per machine)
@@ -245,3 +261,7 @@ Tag and push, CI cross-compiles and attaches binaries:
 ```sh
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
