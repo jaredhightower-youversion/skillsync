@@ -62,7 +62,9 @@ skills:
 
 | Command | What it does |
 |---|---|
+| `skillsync init <git-url>` | Set up this machine (see above); `--no-daemon` / `--no-hooks` to skip a step |
 | `skillsync sync` | Sync now (global + current project) |
+| `skillsync sync-all` | Sync global + every project you've synced before; what the background job runs |
 | `skillsync list` | Skills with install status, when each last changed, and who changed it |
 | `skillsync add / remove <skill>` | Manage global subscriptions (default: all) |
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
@@ -70,6 +72,9 @@ skills:
 | `skillsync daemon status` | Background job status |
 | `skillsync hook print` | Hook JSON for hand-managed Claude Code settings |
 | `skillsync uninstall` | Remove skillsync and everything it installed |
+
+`skillsync track` also exists but you never type it — the Claude Code hook calls it to record
+which skills get used.
 
 `skillsync list` answers "what changed lately", newest first:
 
