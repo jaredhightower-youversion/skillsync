@@ -1,2 +1,6 @@
 /skillsync
 /dist/
+
+# Internal framing docs, not published
+PITCH.md
+SHAPING.md

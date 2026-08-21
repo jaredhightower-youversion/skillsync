@@ -4,7 +4,7 @@ Team skill directory with background auto-sync. Edit a skill once in your team's
 every teammate's machine updates automatically across Claude Code, Cursor, and Codex.
 No update command, no drift, with usage metrics to show which skills earn their keep.
 
-See [SHAPING.md](SHAPING.md) for the full design and [SPEC.md](SPEC.md) for the decision record.
+See [SPEC.md](SPEC.md) for the design decisions behind this and why they were made.
 
 ## Install
 
