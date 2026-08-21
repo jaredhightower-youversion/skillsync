@@ -68,7 +68,7 @@ skills:
 | `skillsync list` | Skills with install status, when each last changed, and who changed it |
 | `skillsync add / remove <skill>` | Manage global subscriptions (default: all) |
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
-| `skillsync stats` | Local skill-usage counts |
+| `skillsync stats` | How often each skill has been used on this machine |
 | `skillsync daemon status` | Background job status |
 | `skillsync hook print` | Hook JSON for hand-managed Claude Code settings |
 | `skillsync uninstall` | Remove skillsync and everything it installed |
@@ -87,6 +87,29 @@ available  release-notes                2026-05-01   Ada Lovelace     org
 
 Dates come from the skill repo's git history, so they reflect when a skill was actually
 edited, not when your machine last synced.
+
+## Which skills actually get used
+
+`skillsync stats` shows how often each skill has been invoked on your machine:
+
+```
+SKILL                          USES
+code-review                    24
+deploy-checklist               9
+release-notes                  1
+```
+
+Two things to know about the numbers:
+
+- **They need the hooks.** Counting happens through the Claude Code hook that `init` installs.
+  If you ran `init --no-hooks`, or removed them, stats stay empty. `skillsync hook install`
+  turns counting on later.
+- **Claude Code only.** Claude Code reports skill invocations, so those counts are exact.
+  Cursor and Codex don't expose an equivalent signal, so skills used there are not counted.
+  A team living mostly in Cursor will see numbers that undercount real usage.
+
+By default the counts never leave your machine. Set `metrics.endpoint` in the config to send
+them to a team collector instead — see below.
 
 ## Configuration
 
