@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -155,7 +156,10 @@ func fatal(format string, args ...any) {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
-  skillsync init <git-url>            set up this machine (--no-daemon / --no-hooks to skip a part)
+  skillsync init <git-url>            set up this machine: sync now, then keep syncing on its own
+      --tools claude-code,cursor,codex  which agent tools to install into (default: claude-code)
+      --no-daemon / --no-hooks          escape hatches for CI or locked-down machines: skills then
+                                        go stale until you run "skillsync sync" yourself
   skillsync sync                      sync now
   skillsync list                      skills, when each changed, and who changed it
   skillsync add|remove <skill>        manage your global subscriptions
@@ -178,9 +182,25 @@ func main() {
 		return os.Args[i]
 	}
 	hasFlag := func(name string) bool { return slices.Contains(os.Args, name) }
+	// flagValue accepts both `--tools cursor` and `--tools=cursor`.
+	flagValue := func(name string) string {
+		for i, a := range os.Args {
+			if a == name && i+1 < len(os.Args) {
+				return os.Args[i+1]
+			}
+			if v, ok := strings.CutPrefix(a, name+"="); ok {
+				return v
+			}
+		}
+		return ""
+	}
 	switch os.Args[1] {
 	case "init":
-		cmdInit(arg(2), !hasFlag("--no-daemon"), !hasFlag("--no-hooks"))
+		tools, err := parseTools(flagValue("--tools"))
+		if err != nil {
+			fatal("%v", err)
+		}
+		cmdInit(arg(2), tools, !hasFlag("--no-daemon"), !hasFlag("--no-hooks"))
 	case "sync", "sync-all":
 		// sync-all is kept as an alias: schedulers installed by earlier
 		// versions invoke it by name.
@@ -218,7 +238,11 @@ func main() {
 // auto-updates is the failure this project exists to prevent. Either can be
 // declined, and neither failing is fatal: the config and skills are still
 // good, so we warn and carry on rather than leaving a half-initialized state.
-func cmdInit(url string, withDaemon, withHooks bool) {
+//
+// It ends by printing `auto status` rather than a fixed success line, so a
+// skipped or failed step is visible to whoever ran it, human or agent, instead
+// of being reported as "ready".
+func cmdInit(url string, tools []string, withDaemon, withHooks bool) {
 	if _, err := loadConfig(); err == nil {
 		fatal("already initialized (%s); edit it to change sources", configPath())
 	}
@@ -230,22 +254,64 @@ func cmdInit(url string, withDaemon, withHooks bool) {
 	}
 	cfg := &Config{
 		Sources: []Source{src},
-		Tools:   []string{"claude-code"},
+		Tools:   tools,
 		Metrics: Metrics{Enabled: true},
 	}
 	if err := saveJSON(configPath(), cfg); err != nil {
 		fatal("write config: %v", err)
 	}
 	fmt.Printf("initialized with source %s\n", url)
+	fmt.Printf("installing into: %s\n", strings.Join(tools, ", "))
 	cmdSync()
 
 	if withDaemon {
 		runStep("background sync", func() { cmdDaemon("install") })
+	} else {
+		fmt.Println("skipped background job (--no-daemon): skills will NOT update on their own")
 	}
 	if withHooks {
 		runStep("Claude Code hooks", func() { cmdHook("install") })
+	} else {
+		fmt.Println("skipped Claude Code hooks (--no-hooks): no session-start sync, no usage stats")
 	}
-	fmt.Println("\nready, skills stay up to date on their own. `skillsync list` to see them.")
+	fmt.Println()
+	autoStatus()
+}
+
+// parseTools turns the `--tools` flag into the config's tool list. Empty means
+// the default. Unknown names are rejected here because sync silently ignores
+// tools it has no adapter for, which would otherwise look like a successful
+// install into nothing.
+func parseTools(flag string) ([]string, error) {
+	if strings.TrimSpace(flag) == "" {
+		return []string{"claude-code"}, nil
+	}
+	var tools []string
+	for _, t := range strings.Split(flag, ",") {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if _, ok := adapters[t]; !ok {
+			return nil, fmt.Errorf("unknown tool %q in --tools; choose from: %s", t, strings.Join(adapterNames(), ", "))
+		}
+		if !slices.Contains(tools, t) {
+			tools = append(tools, t)
+		}
+	}
+	if len(tools) == 0 {
+		return nil, fmt.Errorf("--tools given but empty; choose from: %s", strings.Join(adapterNames(), ", "))
+	}
+	return tools, nil
+}
+
+func adapterNames() []string {
+	names := make([]string, 0, len(adapters))
+	for name := range adapters {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 // runStep runs an optional setup step, turning a fatal into a warning so one
