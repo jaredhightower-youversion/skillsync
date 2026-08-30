@@ -142,16 +142,24 @@ func daemonInstalledLabel() string {
 }
 
 func hooksInstalledLabel() string {
-	settings, ok := readClaudeSettings()
-	if !ok {
+	if _, ok := readClaudeSettings(); !ok {
 		return "no settings file  (skillsync auto on)"
 	}
+	if hooksInstalled() {
+		return "hooks installed"
+	}
+	return "hooks not installed  (skillsync auto on)"
+}
+
+// hooksInstalled reports whether any Claude Code hook event invokes skillsync.
+func hooksInstalled() bool {
+	settings, _ := readClaudeSettings()
 	hooks, _ := settings["hooks"].(map[string]any)
 	for _, list := range hooks {
 		entries, _ := list.([]any)
 		if hasSkillsyncHook(entries) {
-			return "hooks installed"
+			return true
 		}
 	}
-	return "hooks not installed  (skillsync auto on)"
+	return false
 }
