@@ -38,10 +38,28 @@ skillsync init git@github.com:your-org/skills.git
 ```
 
 That syncs your skills, registers a background job that re-syncs every 15 minutes, and adds
-Claude Code hooks for session-start sync and usage tracking. Skip either piece with
-`--no-daemon` or `--no-hooks`.
+Claude Code hooks for session-start sync and usage tracking. It ends by printing
+`skillsync auto status`, so you can see all three pieces landed.
 
 Done. Skills appear in `~/.claude/skills/` and update on their own.
+
+To install into Cursor or Codex as well:
+
+```sh
+skillsync init git@github.com:your-org/skills.git --tools claude-code,cursor,codex
+```
+
+`--no-daemon` and `--no-hooks` skip the background job or the hooks. They exist for CI and
+locked-down machines; with either one, skills go stale until someone runs `skillsync sync`
+by hand, and `init` says so. Add them only when you mean that.
+
+### Letting an agent set it up
+
+Every synced machine gets a built-in `skillsync` skill (`~/.claude/skills/skillsync/SKILL.md`),
+so an agent knows how to set up skillsync, add skills to the team repo, and verify updates
+arrived. Before the first sync there is nothing installed yet, so if you ask an agent to
+onboard a machine, the instructions that matter are: run plain `skillsync init <url>` with no
+`--no-*` flags unless you asked for them, then report the `auto status` block it prints.
 
 ## Team skill repo
 
@@ -55,6 +73,10 @@ skills/
 ```
 
 Edit a skill, merge the PR, everyone has the new version within 15 minutes.
+
+skillsync also installs one skill of its own, `skillsync`, which tells agents how to use
+this tool. It has the lowest precedence: a `skills/skillsync/SKILL.md` in your repo
+replaces it, and `skillsync remove skillsync` drops it.
 
 ## Project skills
 
@@ -71,7 +93,7 @@ skills:
 
 | Command | What it does |
 |---|---|
-| `skillsync init <git-url>` | Set up this machine (see above); `--no-daemon` / `--no-hooks` to skip a part |
+| `skillsync init <git-url>` | Set up this machine (see above); `--tools` picks agent tools, `--no-daemon` / `--no-hooks` are escape hatches that leave skills stale |
 | `skillsync sync` | Sync now |
 | `skillsync list` | Skills with install status, when each last changed, and who changed it |
 | `skillsync add / remove <skill>` | Manage global subscriptions (default: all) |
@@ -169,7 +191,7 @@ you know when you're reading stale data.
 
 - **sources**, precedence-ordered; first source wins name collisions. `pin` (tag/commit)
   freezes a source for change control; omit to track the default branch.
-- **tools**, which agent tools to install into. Default: `claude-code` only.
+- **tools**, which agent tools to install into (set at `init` with `--tools`, or edit here). Default: `claude-code` only.
   Available: `claude-code` (`~/.claude/skills`), `cursor` (`~/.cursor/skills`),
   `codex` (`~/.agents/skills`). Each also installs project-locally under the
   same relative path.
