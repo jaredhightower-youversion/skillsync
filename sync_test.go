@@ -1,8 +1,10 @@
 package main
 
 import (
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -554,5 +556,105 @@ func TestBuiltinSkillHasLowestPrecedence(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Source != "team" {
 		t.Fatalf("a team skill named skillsync must override the built-in, got %+v", got)
+	}
+}
+
+// fakeRelease serves a GitHub-style latest-release API plus the asset and
+// checksums for this platform, returning the server and the asset bytes.
+func fakeRelease(t *testing.T, tag string, tamperChecksum bool) (*httptest.Server, []byte) {
+	t.Helper()
+	asset := []byte("#!/bin/sh\necho " + tag + "\n")
+	sum := sha256.Sum256(asset)
+	sumHex := hex.EncodeToString(sum[:])
+	if tamperChecksum {
+		sumHex = strings.Repeat("0", 64)
+	}
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mux.HandleFunc("/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"tag_name":%q,"assets":[{"name":%q,"browser_download_url":%q},{"name":"checksums.txt","browser_download_url":%q}]}`,
+			tag, assetName(), srv.URL+"/asset", srv.URL+"/checksums.txt")
+	})
+	mux.HandleFunc("/asset", func(w http.ResponseWriter, r *http.Request) { w.Write(asset) })
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  %s\n%s  skillsync-other-arch\n", sumHex, assetName(), sumHex)
+	})
+	srv = httptest.NewTLSServer(mux)
+	t.Cleanup(srv.Close)
+	prevAPI, prevClient := releaseAPI, upgradeClient
+	releaseAPI, upgradeClient = srv.URL+"/releases/latest", srv.Client()
+	t.Cleanup(func() { releaseAPI, upgradeClient = prevAPI, prevClient })
+	return srv, asset
+}
+
+func TestUpgradeReplacesBinaryAfterChecksum(t *testing.T) {
+	_, asset := fakeRelease(t, "v9.9.9", false)
+	target := filepath.Join(t.TempDir(), "skillsync")
+	os.WriteFile(target, []byte("old"), 0o755)
+
+	rel, err := latestRelease()
+	if err != nil || rel.Tag != "v9.9.9" {
+		t.Fatalf("latestRelease: %v %+v", err, rel)
+	}
+	if err := upgradeBinary(target, rel); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(target)
+	if string(got) != string(asset) {
+		t.Fatalf("binary not replaced: %q", got)
+	}
+	if _, err := os.Stat(target + ".new"); !os.IsNotExist(err) {
+		t.Fatal("temp download left behind")
+	}
+}
+
+func TestUpgradeRefusesBadChecksum(t *testing.T) {
+	fakeRelease(t, "v9.9.9", true)
+	target := filepath.Join(t.TempDir(), "skillsync")
+	os.WriteFile(target, []byte("old"), 0o755)
+
+	rel, _ := latestRelease()
+	err := upgradeBinary(target, rel)
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("expected checksum failure, got %v", err)
+	}
+	if got, _ := os.ReadFile(target); string(got) != "old" {
+		t.Fatal("binary was replaced despite bad checksum")
+	}
+}
+
+func TestUpgradeNotice(t *testing.T) {
+	prev := version
+	defer func() { version = prev }()
+
+	version = "v0.1.0"
+	s := &State{Update: UpdateInfo{Latest: "v0.2.0"}}
+	if n := upgradeNotice(s); !strings.Contains(n, "v0.2.0") || !strings.Contains(n, "skillsync upgrade") {
+		t.Fatalf("expected upgrade hint, got %q", n)
+	}
+	s.Update.Latest = "v0.1.0"
+	if n := upgradeNotice(s); n != "" {
+		t.Fatalf("up to date should be silent, got %q", n)
+	}
+	version = "dev"
+	s.Update.Latest = "v0.2.0"
+	if n := upgradeNotice(&State{}); n != "" {
+		t.Fatalf("unknown latest should be silent, got %q", n)
+	}
+}
+
+func TestRecordLatestVersionIsRateLimited(t *testing.T) {
+	fakeRelease(t, "v9.9.9", false)
+	s := &State{}
+	recordLatestVersion(s)
+	if s.Update.Latest != "v9.9.9" || s.Update.CheckedAt.IsZero() {
+		t.Fatalf("first check should record: %+v", s.Update)
+	}
+	// Point the API at nothing; a recent check must not hit it.
+	releaseAPI = "https://127.0.0.1:1/nope"
+	s.Update.Latest = "v9.9.9"
+	recordLatestVersion(s)
+	if s.Update.Latest != "v9.9.9" {
+		t.Fatal("re-checked within the rate limit window")
 	}
 }

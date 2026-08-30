@@ -31,6 +31,25 @@ Or with Go installed:
 go install github.com/jaredhightower-youversion/skillsync@latest
 ```
 
+### Upgrading
+
+```sh
+skillsync upgrade
+```
+
+Downloads the latest release for your platform, checks it against the release's
+`checksums.txt`, and swaps it in place of the running binary. If skillsync lives in a
+directory you can't write to (like `/usr/local/bin`), run it with `sudo`.
+
+You don't have to remember to check. The background sync looks up the newest release once
+a day, and the next Claude Code session prints one line if you're behind:
+
+```
+skillsync v0.2.0 is available (you have v0.1.0). Upgrade: skillsync upgrade
+```
+
+`skillsync version` prints what's installed.
+
 ## Setup (one time, per machine)
 
 ```sh
@@ -100,6 +119,8 @@ skills:
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
 | `skillsync stats` | How often each skill has been used on this machine |
 | `skillsync auto on / off / status` | Automatic updating: the background job and Claude Code hooks |
+| `skillsync upgrade` | Replace the binary with the latest release |
+| `skillsync version` | Print the installed version |
 | `skillsync uninstall` | Remove skillsync and everything it installed |
 
 Realistically you type `init` once and `list` or `stats` occasionally; everything else is for

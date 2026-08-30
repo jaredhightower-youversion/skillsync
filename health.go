@@ -43,6 +43,7 @@ func autoStatus() {
 	state := loadState()
 	h := state.Health
 
+	fmt.Printf("version:         %s\n", currentVersion())
 	fmt.Printf("background job:  %s\n", daemonInstalledLabel())
 	fmt.Printf("Claude Code:     %s\n", hooksInstalledLabel())
 
@@ -63,6 +64,9 @@ func autoStatus() {
 		return
 	}
 	fmt.Println("\nskills are updating automatically.")
+	if notice := upgradeNotice(state); notice != "" {
+		fmt.Println(notice)
+	}
 }
 
 // healthProblem returns a plain-language description of why this machine is
@@ -90,8 +94,12 @@ func cmdCheck() {
 	if _, err := loadConfig(); err != nil {
 		return // not set up; nothing to warn about
 	}
-	if problem := healthProblem(loadState()); problem != "" {
+	state := loadState()
+	if problem := healthProblem(state); problem != "" {
 		fmt.Printf("skillsync: %s\n", problem)
+	}
+	if notice := upgradeNotice(state); notice != "" {
+		fmt.Println(notice)
 	}
 }
 
