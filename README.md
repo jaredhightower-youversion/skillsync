@@ -31,6 +31,25 @@ Or with Go installed:
 go install github.com/jaredhightower-youversion/skillsync@latest
 ```
 
+### Upgrading
+
+```sh
+skillsync upgrade
+```
+
+Downloads the latest release for your platform, checks it against the release's
+`checksums.txt`, and swaps it in place of the running binary. If skillsync lives in a
+directory you can't write to (like `/usr/local/bin`), run it with `sudo`.
+
+You don't have to remember to check. The background sync looks up the newest release once
+a day, and the next Claude Code session prints one line if you're behind:
+
+```
+skillsync v0.2.0 is available (you have v0.1.0). Upgrade: skillsync upgrade
+```
+
+`skillsync version` prints what's installed.
+
 ## Setup (one time, per machine)
 
 ```sh
@@ -100,6 +119,8 @@ skills:
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
 | `skillsync stats` | How often each skill has been used on this machine |
 | `skillsync auto on / off / status` | Automatic updating: the background job and Claude Code hooks |
+| `skillsync upgrade` | Replace the binary with the latest release |
+| `skillsync version` | Print the installed version |
 | `skillsync uninstall` | Remove skillsync and everything it installed |
 
 Realistically you type `init` once and `list` or `stats` occasionally; everything else is for
@@ -133,6 +154,9 @@ Two things to know about the numbers:
 - **They need the hooks.** Counting happens through the Claude Code hook that `init` installs.
   If you ran `init --no-hooks`, or removed them, stats stay empty. `skillsync hook install`
   turns counting on later.
+- **Managed skills only.** Only skills skillsync installed from your source repos are counted.
+  Skills you added by hand, and the built-in `skillsync` skill, are ignored, and their names
+  are never written to the event log or sent to a metrics endpoint.
 - **Claude Code only.** Claude Code reports skill invocations, so those counts are exact.
   Cursor and Codex don't expose an equivalent signal, so skills used there are not counted.
   A team living mostly in Cursor will see numbers that undercount real usage.

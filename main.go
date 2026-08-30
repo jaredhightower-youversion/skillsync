@@ -70,6 +70,14 @@ type State struct {
 	// re-syncs each (SPEC §4).
 	Projects         []string                             `json:"projects,omitempty"`
 	ProjectInstalled map[string]map[string]InstalledSkill `json:"project_installed,omitempty"`
+	// Update is the newest release tag seen by the daily check in sync, so
+	// the offline `check` hook can point at `skillsync upgrade`.
+	Update UpdateInfo `json:"update,omitempty"`
+}
+
+type UpdateInfo struct {
+	Latest    string    `json:"latest,omitempty"`
+	CheckedAt time.Time `json:"checked_at,omitempty"`
 }
 
 type InstalledSkill struct {
@@ -166,6 +174,8 @@ func usage() {
   skillsync adopt <skill>             replace a hand-installed skill with the managed version
   skillsync stats                     how often each skill gets used
   skillsync auto on|off|status        automatic updating: background job + Claude Code hooks
+  skillsync upgrade                   replace this binary with the latest release
+  skillsync version                   print the installed version
   skillsync uninstall [--keep-skills] remove skillsync and everything it installed
 `)
 	os.Exit(2)
@@ -227,6 +237,10 @@ func main() {
 		cmdTrack(os.Args[2:])
 	case "stats":
 		cmdStats()
+	case "upgrade":
+		cmdUpgrade()
+	case "version", "--version", "-v":
+		cmdVersion()
 	default:
 		usage()
 	}
