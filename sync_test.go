@@ -465,3 +465,47 @@ func TestCheckIsSilentWhenHealthy(t *testing.T) {
 	t.Setenv("HOME", home)
 	cmdCheck() // not initialized: must not panic or print
 }
+
+func TestParseTools(t *testing.T) {
+	got, err := parseTools("")
+	if err != nil || len(got) != 1 || got[0] != "claude-code" {
+		t.Fatalf("empty flag should default to claude-code, got %v, %v", got, err)
+	}
+	got, err = parseTools(" cursor, codex ,cursor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "cursor" || got[1] != "codex" {
+		t.Fatalf("expected [cursor codex] trimmed and deduplicated, got %v", got)
+	}
+	if _, err := parseTools("claude-code,vscode"); err == nil {
+		t.Fatal("unknown tool must be rejected, sync would silently install into nothing")
+	}
+	if _, err := parseTools(" , "); err == nil {
+		t.Fatal("explicitly empty --tools must be rejected")
+	}
+}
+
+func TestBuiltinSkillHasLowestPrecedence(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	got, err := withBuiltin(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != builtinSkillName || got[0].Source != builtinSource {
+		t.Fatalf("empty resolve should yield only the built-in skill, got %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(got[0].Dir, "SKILL.md")); err != nil {
+		t.Fatalf("built-in skill not materialized: %v", err)
+	}
+
+	team := Skill{Name: builtinSkillName, Dir: "/team/skills/skillsync", Source: "team"}
+	got, err = withBuiltin([]Skill{team})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Source != "team" {
+		t.Fatalf("a team skill named skillsync must override the built-in, got %+v", got)
+	}
+}
