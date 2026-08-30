@@ -51,7 +51,7 @@ func resolveSkills(cfg *Config) ([]Skill, error) {
 	for _, n := range order {
 		resolved = append(resolved, byName[n])
 	}
-	return resolved, nil
+	return withBuiltin(resolved)
 }
 
 // validateSource rejects source definitions that would turn a config file into
@@ -457,6 +457,9 @@ func cmdList() {
 // read from the source repo's history rather than file mtimes (which reflect
 // when we cloned, not when the skill was edited).
 func lastChanged(sk Skill) (time.Time, string) {
+	if sk.Source == builtinSource {
+		return time.Time{}, "built in"
+	}
 	repoPath := filepath.Join(reposDir(), sk.Source)
 	rel, err := filepath.Rel(repoPath, sk.Dir)
 	if err != nil {
