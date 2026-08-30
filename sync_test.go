@@ -196,11 +196,56 @@ func TestCodexAdapterUsesAgentsSkills(t *testing.T) {
 func TestTrackAndStats(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	registerManaged(t, "my-skill")
+	s := loadState()
+	s.Installed["skillsync"] = InstalledSkill{Source: "builtin", Hash: "def"}
+	saveJSON(statePath(), s)
+
 	cmdTrack([]string{"my-skill"})
 	cmdTrack([]string{"my-skill"})
+	cmdTrack([]string{"local-only-skill"}) // hand-installed, not managed: dropped
+	cmdTrack([]string{"skillsync"})        // built-in, not from the repo: dropped
 	events := readEvents()
 	if len(events) != 2 || events[0].Skill != "my-skill" || events[0].Tool != "claude-code" {
 		t.Fatalf("unexpected events: %+v", events)
+	}
+}
+
+// registerManaged marks skills as installed from a source repo in the current
+// (test) HOME, so cmdTrack counts them.
+func registerManaged(t *testing.T, names ...string) {
+	t.Helper()
+	s := loadState()
+	for _, n := range names {
+		s.Installed[n] = InstalledSkill{Source: "team", Hash: "h"}
+	}
+	if err := saveJSON(statePath(), s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIsManagedSkillCoversProjectScope(t *testing.T) {
+	s := &State{
+		Installed:        map[string]InstalledSkill{},
+		ProjectInstalled: map[string]map[string]InstalledSkill{"/proj": {"proj-skill": {Source: "team"}}},
+	}
+	if !isManagedSkill(s, "proj-skill") {
+		t.Fatal("project-installed skill should be managed")
+	}
+	if isManagedSkill(s, "nope") {
+		t.Fatal("unknown skill should not be managed")
+	}
+}
+
+func TestNoEventsHintDependsOnHooks(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got := noEventsHint(); !strings.Contains(got, "hook install") || strings.Contains(got, "hooks are installed") {
+		t.Fatalf("without hooks, hint should tell the user to install them, got %q", got)
+	}
+	cmdHook("install")
+	if got := noEventsHint(); !strings.Contains(got, "hooks are installed") {
+		t.Fatalf("with hooks, hint should not ask to install them again, got %q", got)
 	}
 }
 
@@ -217,6 +262,7 @@ func TestHookIdempotency(t *testing.T) {
 func TestFlushMetrics(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	registerManaged(t, "a", "b")
 	cmdTrack([]string{"a"})
 	var got []usageEvent
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +317,7 @@ func TestValidateSource(t *testing.T) {
 func TestMetricsRequiresHTTPS(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	registerManaged(t, "secret-skill")
 	cmdTrack([]string{"secret-skill"})
 	flushMetrics(&Config{Metrics: Metrics{Enabled: true, Endpoint: "http://metrics.internal/skills"}})
 	if len(readEvents()) != 1 {

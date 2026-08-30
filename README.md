@@ -133,6 +133,9 @@ Two things to know about the numbers:
 - **They need the hooks.** Counting happens through the Claude Code hook that `init` installs.
   If you ran `init --no-hooks`, or removed them, stats stay empty. `skillsync hook install`
   turns counting on later.
+- **Managed skills only.** Only skills skillsync installed from your source repos are counted.
+  Skills you added by hand, and the built-in `skillsync` skill, are ignored, and their names
+  are never written to the event log or sent to a metrics endpoint.
 - **Claude Code only.** Claude Code reports skill invocations, so those counts are exact.
   Cursor and Codex don't expose an equivalent signal, so skills used there are not counted.
   A team living mostly in Cursor will see numbers that undercount real usage.

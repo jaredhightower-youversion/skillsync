@@ -45,6 +45,9 @@ func cmdTrack(args []string) {
 	} else {
 		usage()
 	}
+	if !isManagedSkill(loadState(), name) {
+		return // only skills from the connected repo are counted; local skills stay private
+	}
 	ev := usageEvent{Skill: name, Tool: "claude-code", Time: time.Now().UTC()}
 	if err := os.MkdirAll(stateDir(), 0o755); err != nil {
 		return
@@ -56,6 +59,22 @@ func cmdTrack(args []string) {
 	defer f.Close()
 	b, _ := json.Marshal(ev)
 	f.Write(append(b, '\n'))
+}
+
+// isManagedSkill reports whether skillsync installed the skill from a source
+// repo, globally or in any registered project. Hand-installed local skills and
+// the built-in skillsync skill are excluded, so stats reflect only the team's
+// own skills and unmanaged skill names never reach the metrics sink.
+func isManagedSkill(s *State, name string) bool {
+	if inst, ok := s.Installed[name]; ok && inst.Source != "builtin" {
+		return true
+	}
+	for _, skills := range s.ProjectInstalled {
+		if inst, ok := skills[name]; ok && inst.Source != "builtin" {
+			return true
+		}
+	}
+	return false
 }
 
 // readEvents reads the live queue plus any batch left behind by a failed
@@ -85,7 +104,7 @@ func cmdStats() {
 	warnIfUnhealthy()
 	events := readEvents()
 	if len(events) == 0 {
-		fmt.Println("no usage events recorded yet (install hooks: skillsync hook install)")
+		fmt.Println(noEventsHint())
 		return
 	}
 	counts := map[string]int{}
@@ -105,6 +124,16 @@ func cmdStats() {
 	for _, r := range rows {
 		fmt.Printf("%-30s %d\n", r.name, r.count)
 	}
+}
+
+// noEventsHint explains an empty stats table. The advice depends on whether
+// the PostToolUse hook is wired up: telling a user with hooks installed to
+// install them sends them in circles.
+func noEventsHint() string {
+	if hooksInstalled() {
+		return "no usage events recorded yet; hooks are installed, so events appear once a skill is invoked in a Claude Code session started after `skillsync hook install`"
+	}
+	return "no usage events recorded yet (install hooks: skillsync hook install)"
 }
 
 // flushMetrics batches queued events to the configured sink; on success the
