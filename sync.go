@@ -206,6 +206,7 @@ func cmdSync() {
 		syncProject(cfg, state, resolved, root)
 		state.Projects = append(state.Projects, root)
 	}
+	recordLatestVersion(state)
 	mustSaveState(state)
 	flushMetrics(cfg)
 }

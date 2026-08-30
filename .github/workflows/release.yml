@@ -24,7 +24,7 @@ jobs:
             for arch in amd64 arm64; do
               ext=""; [ "$os" = "windows" ] && ext=".exe"
               GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
-                go build -trimpath -ldflags="-s -w" \
+                go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" \
                 -o "dist/skillsync-$os-$arch$ext" .
             done
           done
