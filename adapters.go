@@ -111,13 +111,3 @@ func (a dirAdapter) Remove(name, projectRoot string) error {
 	}
 	return os.RemoveAll(filepath.Join(base, name))
 }
-
-func writeIfChanged(path string, content []byte) error {
-	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(content) {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, content, 0o644)
-}

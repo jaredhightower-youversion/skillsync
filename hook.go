@@ -38,7 +38,7 @@ func hookEntries() (sessionStart, postToolUse map[string]any) {
 	// contain spaces, and an unquoted path runs the wrong command silently.
 	sessionStart = map[string]any{
 		"hooks": []any{map[string]any{
-			"type":    "command",
+			"type": "command",
 			// check is fast and offline: it prints only when something is
 			// broken, so failures surface inside the session instead of the
 			// daemon log. The sync itself is backgrounded so it never delays
