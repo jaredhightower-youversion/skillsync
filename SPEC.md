@@ -86,6 +86,16 @@ On sync, adapters scan target dirs for name collisions with incoming managed ski
 
 Rationale: managed-overwrite (§5) applies only to files SkillSync installed; hash match is proof of equivalence, so adoption is safe. Uses same per-skill install-hash machinery as drift detection.
 
+### 11. Exposure: availability is not listing (decided 2026-09-09)
+Claude Code loads every installed skill's name and description into context each turn and caps the listing at ~1% of the context window (`skillListingBudgetFraction`), truncating descriptions past that. With ~100 synced skills the trigger phrases are what gets cut. Per-project install lists would bound the cost but defeat "everything, everywhere" (§4), so instead:
+- **Two states.** *Available* = files on disk, slash command works (every synced skill). *Exposed* = description in Claude's context. Declared per skill as `metadata.exposure: auto | on-demand` (default on-demand) in SKILL.md, a spec-legal key so the file still uploads elsewhere. `disable-model-invocation` frontmatter and `prefix:name` renames are rejected: both break the Agent Skills spec, and the colon is illegal on Windows.
+- **Sync writes the knob.** After installing, sync merges Claude Code's `skillOverrides` map in `~/.claude/settings.json`: auto → `"on"`, on-demand → `"user-invocable-only"`. Only managed skills are touched; state.json records what was written so `remove`/`uninstall` can take it back.
+- **Usage adjusts per machine.** From the §8 event log: on-demand invoked ≥3× in 30 days → `"on"`; auto unused 90 days → `"name-only"`. A tier change in the repo resets the clocks. Thresholds live in config.json `exposure`, not code.
+- **Hubs.** A prefix family with ≥8 hidden members gets one generated router skill (`marketing`, `design`) in `~/.claude/skills`: description summarizes the family, body tables members and their SKILL.md paths. Marker comment; regenerated/removed by sync; a real skill owning the prefix name wins.
+- **Budget check.** `skillsync check` (run by the session-start hook) sums listed descriptions against the budget and names the largest contributors, so truncation never happens silently.
+
+Not done: Cursor/Codex have no overrides knob, so the two concepts collapse to the install set there; the proposal's "install auto + hubs only" flag for those tools is deferred. `skillsync.yaml` keeps its install-list semantics; project-level promotion is a hand-written `.claude/settings.local.json`.
+
 ## Implementation status (2026-08-20)
 All six build slices implemented and verified (unit tests + end-to-end smoke): CLI (`init/sync/sync-all/list/add/remove/adopt`), daemon (launchd + systemd user timer), Claude Code hooks (`hook install`: SessionStart sync + PostToolUse Skill tracking), adapters (Claude Code passthrough, Cursor `.mdc` project rules, Codex managed AGENTS.md section), metrics (`track`/`stats` + HTTPS sink flush), multi-source precedence + per-source pin. Codex adapter decision: managed marker section in AGENTS.md, user content preserved.
 

@@ -114,7 +114,8 @@ skills:
 |---|---|
 | `skillsync init <git-url>` | Set up this machine (see above); `--tools` picks agent tools, `--no-daemon` / `--no-hooks` are escape hatches that leave skills stale |
 | `skillsync sync` | Sync now |
-| `skillsync list` | Skills with install status, when each last changed, and who changed it |
+| `skillsync list` | Skills with install status, what Claude sees of each, when each last changed, and who changed it |
+| `skillsync check` | Warn if syncs are failing or Claude's skill listing is over budget (the session hook runs this) |
 | `skillsync add / remove <skill>` | Manage global subscriptions (default: all) |
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
 | `skillsync stats` | How often each skill has been used on this machine |
@@ -129,14 +130,69 @@ when something needs checking.
 `skillsync list` answers "what changed lately", newest first:
 
 ```
-STATUS     SKILL                        UPDATED      BY               SOURCE
-installed  deploy-checklist             2h ago       Grace Hopper     team
-installed  code-review                  6d ago       Ada Lovelace     org
-available  release-notes                2026-05-01   Ada Lovelace     org
+STATUS     SKILL                        TIER       CLAUDE SEES          LAST USED    UPDATED      BY               SOURCE
+installed  deploy-checklist             on-demand  on                   1d ago       2h ago       Grace Hopper     team
+installed  code-review                  auto       on                   3h ago       6d ago       Ada Lovelace     org
+installed  marketing-seo-audit          on-demand  user-invocable-only  unknown      9d ago       Grace Hopper     team
+available  release-notes                on-demand  -                    unknown      2026-05-01   Ada Lovelace     org
 ```
+
+`TIER` is what the skill repo declared, `CLAUDE SEES` is what this machine wrote into Claude
+Code after applying the usage rules (see below).
 
 Dates come from the skill repo's git history, so they reflect when a skill was actually
 edited, not when your machine last synced.
+
+## What Claude sees (installed is not the same as listed)
+
+Claude Code loads every installed skill's name and description into context on every turn,
+and caps that listing at about 1% of the context window. Past that it truncates descriptions,
+and the trigger phrases are the first thing to go: the wrong skill fires, or none does. A
+hundred skills is already over.
+
+So skillsync keeps two things apart:
+
+- **Available**: the files are on the machine and the `/` command works. Every synced skill.
+- **Exposed**: the description is in Claude's context so it can trigger by itself. Only
+  skills the repo marks `auto`.
+
+A skill declares its tier in `SKILL.md` frontmatter. The key is spec-legal, so the same
+file still uploads to claude.ai and the Skills API:
+
+```yaml
+---
+name: marketing-seo-audit
+description: ...
+metadata:
+  exposure: on-demand   # or: auto. Absent = on-demand.
+---
+```
+
+On every sync skillsync writes Claude Code's own `skillOverrides` map in
+`~/.claude/settings.json`, touching only skills it manages. `auto` becomes `"on"`,
+`on-demand` becomes `"user-invocable-only"` (hidden from Claude, still in the `/` menu).
+
+Then three things adjust that per machine, without touching the repo:
+
+- **Promotion.** An `on-demand` skill you invoked 3 or more times in the last 30 days is
+  listed with its description here. Use it and it earns its place.
+- **Demotion.** An `auto` skill nobody invoked in 90 days drops to `"name-only"` here.
+  Changing a skill's tier in the repo resets both clocks on every machine.
+- **Hubs.** A prefix family (`marketing-*`, `design-*`) with 8 or more hidden members gets
+  one generated router skill named after the prefix. Its description is listed; its body is
+  a table of the members and where their `SKILL.md` lives. One description buys the whole
+  family, and since it is built from the members' frontmatter it cannot go stale. Hubs
+  carry a marker comment and are regenerated or removed by sync.
+
+`skillsync check` (which the session-start hook runs) warns when the descriptions that are
+listed still exceed the budget, naming the biggest ones. It honors
+`skillListingBudgetFraction` in settings and `SLASH_COMMAND_TOOL_CHAR_BUDGET` if set.
+
+A project can promote skills for sessions inside it by writing the same `skillOverrides`
+shape into its `.claude/settings.local.json`; skillsync leaves that file alone.
+
+Cursor and Codex have no equivalent setting, so on-demand skills are simply installed there
+as before.
 
 ## Which skills actually get used
 
@@ -209,7 +265,8 @@ you know when you're reading stale data.
     {"name": "team", "url": "git@github.com:acme/team-skills.git", "pin": "v2.1.0"}
   ],
   "tools": ["claude-code", "cursor", "codex"],
-  "metrics": {"enabled": true, "endpoint": "https://metrics.internal/skills"}
+  "metrics": {"enabled": true, "endpoint": "https://metrics.internal/skills"},
+  "exposure": {"promote_uses": 3, "promote_days": 30, "demote_days": 90, "hub_min_members": 8}
 }
 ```
 
@@ -221,6 +278,9 @@ you know when you're reading stale data.
   same relative path.
 - **metrics.endpoint**, optional sink for usage events; must be `https://` (cleartext is
   refused, since events name what you are working on). Omit for local-only stats.
+- **exposure**, thresholds for the promote/demote rules and hub generation described above.
+  `hub_min_members: 0` turns hubs off. The values shown are the defaults; `init` writes them
+  out so they are there to edit.
 
 ## ⚠️ Local edits get overwritten
 
@@ -287,7 +347,9 @@ settings stay as they are.
 
 - Project-local skills shadow a global skill of the same name; sync installs both and
   reports the shadowing (agent tools prefer the project copy).
-- Unsubscribing a skill, or dropping it from `skillsync.yaml`, uninstalls it on the next sync.
+- Unsubscribing a skill, or dropping it from `skillsync.yaml`, uninstalls it on the next sync
+  and drops the `skillOverrides` entry skillsync wrote for it. `skillsync uninstall` removes
+  every entry it wrote and leaves the rest of `settings.json` alone.
 - Source URLs must be `https://`, `ssh://`, `git://`, `file://`, or `user@host:path`. Git
   transport helpers (`ext::`) are refused: they run shell commands.
 - Windows is supported: background sync registers with Task Scheduler. Claude Code hooks
@@ -295,10 +357,11 @@ settings stay as they are.
 
 ## Release
 
-Tag and push, CI cross-compiles and attaches binaries:
+Add a section for the version to `CHANGELOG.md`, then tag and push. CI runs the tests,
+cross-compiles, attaches binaries, and uses that changelog section as the release notes:
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 ## License

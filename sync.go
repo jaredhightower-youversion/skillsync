@@ -18,9 +18,11 @@ import (
 
 // Skill is a directory in a source repo containing SKILL.md.
 type Skill struct {
-	Name   string
-	Dir    string
-	Source string
+	Name        string
+	Dir         string
+	Source      string
+	Description string // frontmatter description, what Claude sees when exposed
+	Exposure    string // frontmatter metadata.exposure, "" = on-demand
 }
 
 // resolveSkills fetches every source and merges their skills; earlier sources
@@ -160,7 +162,8 @@ func discoverSkills(repoPath string) ([]Skill, error) {
 			return filepath.SkipDir
 		}
 		if _, err := os.Stat(filepath.Join(path, "SKILL.md")); err == nil {
-			skills = append(skills, Skill{Name: filepath.Base(path), Dir: path})
+			desc, exposure := skillFrontmatter(filepath.Join(path, "SKILL.md"))
+			skills = append(skills, Skill{Name: filepath.Base(path), Dir: path, Description: desc, Exposure: exposure})
 			if path != repoPath {
 				return filepath.SkipDir // no nested skills inside a skill
 			}
@@ -206,6 +209,7 @@ func cmdSync() {
 		syncProject(cfg, state, resolved, root)
 		state.Projects = append(state.Projects, root)
 	}
+	syncExposure(cfg, state, resolved, time.Now().UTC())
 	recordLatestVersion(state)
 	mustSaveState(state)
 	flushMetrics(cfg)
@@ -416,6 +420,14 @@ func cmdUninstall(keepSkills bool) {
 	} else {
 		fmt.Println("left installed skills in place (--keep-skills)")
 	}
+	// Overrides always go: leaving them would hide skills we no longer manage.
+	// Hubs stay with --keep-skills, they still point at the kept members.
+	removeExposure(state)
+	if !keepSkills {
+		for _, hub := range state.Hubs {
+			removeHub(hub)
+		}
+	}
 	cmdDaemon("uninstall")
 	cmdHook("uninstall")
 	if err := os.RemoveAll(stateDir()); err != nil {
@@ -426,10 +438,11 @@ func cmdUninstall(keepSkills bool) {
 }
 
 // cmdList shows every resolved skill, newest change first, so "what changed
-// lately" is answerable at a glance.
+// lately" is answerable at a glance, plus what Claude sees of each (SPEC §11).
 func cmdList() {
 	warnIfUnhealthy()
 	_, state, resolved := mustResolve()
+	uses := usageBySkill()
 
 	type row struct {
 		skill   Skill
@@ -443,14 +456,19 @@ func cmdList() {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].updated.After(rows[j].updated) })
 
-	fmt.Printf("%-10s %-28s %-12s %-16s %s\n", "STATUS", "SKILL", "UPDATED", "BY", "SOURCE")
+	fmt.Printf("%-10s %-28s %-10s %-20s %-12s %-12s %-16s %s\n",
+		"STATUS", "SKILL", "TIER", "CLAUDE SEES", "LAST USED", "UPDATED", "BY", "SOURCE")
 	for _, r := range rows {
-		status := "available"
+		status, sees := "available", "-"
 		if _, ok := state.Installed[r.skill.Name]; ok {
 			status = "installed"
+			if rec, ok := state.Exposure[r.skill.Name]; ok {
+				sees = rec.Written
+			}
 		}
-		fmt.Printf("%-10s %-28s %-12s %-16s %s\n",
-			status, r.skill.Name, humanAge(r.updated), truncate(r.author, 16), r.skill.Source)
+		fmt.Printf("%-10s %-28s %-10s %-20s %-12s %-12s %-16s %s\n",
+			status, r.skill.Name, declaredExposure(r.skill), sees, humanAge(lastUse(uses[r.skill.Name])),
+			humanAge(r.updated), truncate(r.author, 16), r.skill.Source)
 	}
 }
 
