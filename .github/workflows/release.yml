@@ -3,6 +3,9 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # version.yml dispatches this after tagging: a tag pushed with GITHUB_TOKEN
+  # does not fire the push trigger on its own.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,8 +32,16 @@ jobs:
             done
           done
           (cd dist && shasum -a 256 * > checksums.txt)
+      - name: Release notes from CHANGELOG.md
+        run: |
+          # The "## <version>" section changesets wrote, up to the next "## ".
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## / { on = ($2 == v); next }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || echo "No changelog entry for ${GITHUB_REF_NAME}." > notes.md
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: notes.md

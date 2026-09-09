@@ -7,3 +7,6 @@ SHAPING.md
 PITCH.pdf
 SHAPING.pdf
 *.pdf
+
+# Node tooling exists only for changesets (version + changelog)
+node_modules/
