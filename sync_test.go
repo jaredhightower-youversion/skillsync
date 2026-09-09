@@ -369,7 +369,6 @@ func TestAdapterRemove(t *testing.T) {
 	}
 }
 
-
 func TestHookUninstallPreservesOtherHooks(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
