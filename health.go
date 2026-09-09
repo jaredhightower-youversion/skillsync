@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -116,19 +115,6 @@ func warnIfUnhealthy() {
 	}
 	fmt.Fprintf(os.Stderr, "skillsync: last successful sync was %s. Run `skillsync auto status`\n",
 		humanAge(h.LastSuccess))
-}
-
-// recordSync stores the outcome of a sync attempt. Errors are truncated: this
-// is a status line, not a log.
-func recordSync(state *State, syncErr error) {
-	now := time.Now().UTC()
-	state.Health.LastAttempt = now
-	if syncErr != nil {
-		state.Health.LastError = truncate(strings.ReplaceAll(syncErr.Error(), "\n", " "), 200)
-		return
-	}
-	state.Health.LastSuccess = now
-	state.Health.LastError = ""
 }
 
 func daemonInstalled() bool {
