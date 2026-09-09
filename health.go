@@ -101,6 +101,9 @@ func cmdCheck() {
 	if notice := upgradeNotice(state); notice != "" {
 		fmt.Println(notice)
 	}
+	if problem := listingBudgetProblem(); problem != "" {
+		fmt.Printf("skillsync: %s\n", problem)
+	}
 }
 
 // warnIfUnhealthy prints a single line before other commands' output, so a

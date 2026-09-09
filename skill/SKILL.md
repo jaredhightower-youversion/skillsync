@@ -1,6 +1,8 @@
 ---
 name: skillsync
 description: How to set up, use, and troubleshoot skillsync, the team skill directory that keeps agent skills in sync from a git repo. Use when a user asks to install or configure skillsync, add or edit a team skill, check whether skill updates are arriving, or when a skillsync command or hook reports a problem.
+metadata:
+  exposure: auto
 ---
 
 # skillsync

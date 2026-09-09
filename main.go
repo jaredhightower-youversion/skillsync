@@ -24,6 +24,8 @@ type Config struct {
 	// every source.
 	GlobalSkills *[]string `json:"global_skills,omitempty"`
 	Metrics      Metrics   `json:"metrics"`
+	// Promote/demote thresholds for what Claude sees (SPEC §11).
+	Exposure ExposureConfig `json:"exposure"`
 }
 
 // subscribed reports whether a skill belongs in the user's global scope.
@@ -70,6 +72,10 @@ type State struct {
 	// re-syncs each (SPEC §4).
 	Projects         []string                             `json:"projects,omitempty"`
 	ProjectInstalled map[string]map[string]InstalledSkill `json:"project_installed,omitempty"`
+	// What the last sync wrote to Claude Code's skillOverrides, per skill and
+	// hub, and which hub directories it generated (SPEC §11).
+	Exposure map[string]ExposureRecord `json:"exposure,omitempty"`
+	Hubs     []string                  `json:"hubs,omitempty"`
 	// Update is the newest release tag seen by the daily check in sync, so
 	// the offline `check` hook can point at `skillsync upgrade`.
 	Update UpdateInfo `json:"update,omitempty"`
@@ -93,11 +99,11 @@ func homeDir() string {
 	return h
 }
 
-func stateDir() string    { return filepath.Join(homeDir(), ".skillsync") }
-func configPath() string  { return filepath.Join(stateDir(), "config.json") }
-func statePath() string   { return filepath.Join(stateDir(), "state.json") }
-func reposDir() string    { return filepath.Join(stateDir(), "repos") }
-func eventsPath() string  { return filepath.Join(stateDir(), "events.jsonl") }
+func stateDir() string   { return filepath.Join(homeDir(), ".skillsync") }
+func configPath() string { return filepath.Join(stateDir(), "config.json") }
+func statePath() string  { return filepath.Join(stateDir(), "state.json") }
+func reposDir() string   { return filepath.Join(stateDir(), "repos") }
+func eventsPath() string { return filepath.Join(stateDir(), "events.jsonl") }
 
 // binaryPath is the absolute path to this binary, used when writing scheduler
 // and hook entries that must invoke it later.
@@ -121,6 +127,7 @@ func loadConfig() (*Config, error) {
 	if len(c.Tools) == 0 {
 		c.Tools = []string{"claude-code"}
 	}
+	c.Exposure.applyDefaults()
 	return &c, nil
 }
 
@@ -135,6 +142,9 @@ func loadState() *State {
 	}
 	if s.ProjectInstalled == nil {
 		s.ProjectInstalled = map[string]map[string]InstalledSkill{}
+	}
+	if s.Exposure == nil {
+		s.Exposure = map[string]ExposureRecord{}
 	}
 	return s
 }
@@ -169,7 +179,8 @@ func usage() {
       --no-daemon / --no-hooks          escape hatches for CI or locked-down machines: skills then
                                         go stale until you run "skillsync sync" yourself
   skillsync sync                      sync now
-  skillsync list                      skills, when each changed, and who changed it
+  skillsync list                      skills, what Claude sees of each, when each changed, and who changed it
+  skillsync check                     warn if syncs fail or Claude's skill listing is over budget
   skillsync add|remove <skill>        manage your global subscriptions
   skillsync adopt <skill>             replace a hand-installed skill with the managed version
   skillsync stats                     how often each skill gets used
@@ -271,6 +282,7 @@ func cmdInit(url string, tools []string, withDaemon, withHooks bool) {
 		Tools:   tools,
 		Metrics: Metrics{Enabled: true},
 	}
+	cfg.Exposure.applyDefaults() // written out so the thresholds are visible and editable
 	if err := saveJSON(configPath(), cfg); err != nil {
 		fatal("write config: %v", err)
 	}
