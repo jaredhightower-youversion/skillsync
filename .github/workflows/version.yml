@@ -1,0 +1,37 @@
+name: version
+
+# Changesets flow: pending .changeset/*.md on main → a "Release" PR that bumps
+# package.json and CHANGELOG.md. Merging that PR leaves no pending changesets,
+# so the action runs the publish step, which tags and dispatches release.yml.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency: version-${{ github.ref }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: changesets/action@v1
+        with:
+          version: npm run version
+          publish: .github/tag-release.sh
+          commit: "chore: release"
+          title: "Release"
+          createGithubReleases: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

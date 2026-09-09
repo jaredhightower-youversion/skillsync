@@ -357,12 +357,24 @@ settings stay as they are.
 
 ## Release
 
-Add a section for the version to `CHANGELOG.md`, then tag and push. CI runs the tests,
-cross-compiles, attaches binaries, and uses that changelog section as the release notes:
+Versions and `CHANGELOG.md` are managed with [changesets](https://github.com/changesets/changesets).
+The program is Go; `package.json` exists only to hold the version for that tool.
 
-```sh
-git tag v0.2.0 && git push origin v0.2.0
-```
+1. With your change, add a changeset describing it for users (pick `patch` or `minor`, write
+   a sentence or a short list):
+
+   ```sh
+   npx changeset
+   ```
+
+2. Merge to `main`. The `version` workflow opens or updates a "Release" pull request that
+   bumps the version and folds every pending changeset into `CHANGELOG.md`.
+3. Merge that pull request. The workflow tags `v<version>` and dispatches the `release`
+   workflow, which runs the tests, cross-compiles, attaches binaries, and uses the changelog
+   section as the release notes.
+
+To cut a release by hand instead: `npx changeset version`, commit, then
+`git tag v<version> && git push origin main v<version>`.
 
 ## License
 
