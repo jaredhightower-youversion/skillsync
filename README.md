@@ -119,6 +119,7 @@ skills:
 | `skillsync add / remove <skill>` | Manage global subscriptions (default: all) |
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
 | `skillsync stats` | How often each skill has been used on this machine |
+| `skillsync feedback <skill> -m "..."` | Open an issue on the skill's repo: what went wrong, a proposed fix, and an eval case (see below) |
 | `skillsync auto on / off / status` | Automatic updating: the background job and Claude Code hooks |
 | `skillsync upgrade` | Replace the binary with the latest release |
 | `skillsync version` | Print the installed version |
@@ -142,6 +143,32 @@ Code after applying the usage rules (see below).
 
 Dates come from the skill repo's git history, so they reflect when a skill was actually
 edited, not when your machine last synced.
+
+## Sending a skill back for repair
+
+Sync is one-way. When a skill misfires, the fix belongs in the repo, and the person who saw the
+failure is usually an agent mid-task with no time to write it up. `feedback` opens a GitHub
+issue on the skill's source repo in a fixed shape, so the maintainer gets the same three things
+every time:
+
+```
+skillsync feedback ops-handoff \
+  -m "Resume step edited files before showing the summary the skill says to show first." \
+  --proposal "Step 4: print the summary and stop. Edit only after the user replies." \
+  --eval-prompt "Resume the handoff in HANDOFF.md" \
+  --eval-rubric "Prints the handoff summary before making any file change" \
+  --eval-rubric "Does not edit files until the user has replied"
+```
+
+The issue has four sections: what happened, the proposed change to `SKILL.md`, an eval case,
+and context (source, installed hash, reporter). The eval case is a ready-to-append entry for
+`evals/<skill>/cases.json`, the format the skill repo's runner already reads, so adopting the
+fix is: edit the skill, paste the case, run the evals. `--eval-negative` marks a prompt that
+must not trigger the skill. `--dry-run` prints the issue instead of opening it, which is also
+the fallback when the source is not on GitHub or `gh` is not installed.
+
+Needs the [`gh` CLI](https://cli.github.com) logged in to an account that can open issues on
+the repo.
 
 ## What Claude sees (installed is not the same as listed)
 

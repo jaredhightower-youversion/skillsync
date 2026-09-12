@@ -53,6 +53,23 @@ machine syncing from that repo has it within 15 minutes, or immediately after
 To keep a personal variant of a managed skill, copy it under a different name;
 unmanaged names are never touched.
 
+## Reporting a problem with a skill
+
+When a managed skill gave wrong or unhelpful guidance, do not patch the
+installed copy and do not just note it in memory. Send it upstream:
+
+    skillsync feedback <skill> -m "<what happened>" \
+      --proposal "<the SKILL.md wording that would have prevented it>" \
+      --eval-prompt "<a user request that reproduces it>" \
+      --eval-rubric "<what a correct response must do>"
+
+This opens an issue on the skill's source repo. Always include an eval prompt
+and at least one rubric line: the case is appended to the repo's evals when
+the fix is adopted, so it must fail today and pass after the change. Use
+`--eval-negative` when the problem is the skill triggering where it should
+not. Report the issue URL to the user. If the command says `gh` is missing or
+the source is not GitHub, re-run with `--dry-run` and give the user the body.
+
 ## Checking that updates arrive
 
     skillsync list           what is installed, when each skill last changed, by whom

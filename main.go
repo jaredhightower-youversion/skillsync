@@ -184,6 +184,7 @@ func usage() {
   skillsync add|remove <skill>        manage your global subscriptions
   skillsync adopt <skill>             replace a hand-installed skill with the managed version
   skillsync stats                     how often each skill gets used
+  skillsync feedback <skill> -m ...   open an issue on the skill's repo with the problem, a proposed fix, and an eval case
   skillsync auto on|off|status        automatic updating: background job + Claude Code hooks
   skillsync upgrade                   replace this binary with the latest release
   skillsync version                   print the installed version
@@ -248,6 +249,8 @@ func main() {
 		cmdTrack(os.Args[2:])
 	case "stats":
 		cmdStats()
+	case "feedback":
+		cmdFeedback(os.Args[2:])
 	case "upgrade":
 		cmdUpgrade()
 	case "version", "--version", "-v":
