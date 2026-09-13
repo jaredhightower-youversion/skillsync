@@ -1,6 +1,6 @@
 {
   "name": "skillsync",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Version and changelog live here; changesets manages both. The program itself is Go, see go.mod.",
   "scripts": {

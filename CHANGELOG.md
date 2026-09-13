@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- 42e2a5e: Add `skillsync feedback <skill>`: opens a GitHub issue on the skill's source repo with what went wrong, a proposed SKILL.md change, and a ready-to-append eval case, so a fix can be adopted with a test that proves it.
+- 392bfc3: Add an `omp` adapter: `--tools omp` installs into `~/.omp/agent/skills` (and `.omp/skills` per project), where omp's native provider outranks the `~/.claude/skills` copies. omp has no `skillOverrides` map, so exposure rides in the installed copy's frontmatter as `hide: true` — not listed to the model, still loaded, still reachable by `/skill:<name>`. Exposure is now decided before installing rather than after, hubs are generated into every enabled tool's skills directory with paths into that directory, and the install record keeps a per-tool output hash so a rewritten copy is not mistaken for local drift.
+
+### Patch Changes
+
+- 392bfc3: `skillsync upgrade` and the session-start notice now compare versions by semver precedence instead of string equality. A binary built from source reports a module pseudo-version that sorts ahead of the tag it came from, so both used to treat the newest release as an upgrade and would replace a newer binary with an older one.
+
 ## 0.3.0
 
 ### Minor Changes
