@@ -28,18 +28,26 @@ Adapters translate/install into each tool's expected location and shape:
 | Claude Code | `~/.claude/skills/` / `.claude/skills/` |
 | Cursor | `~/.cursor/skills/` / `.cursor/skills/` |
 | OpenAI Codex CLI | `~/.agents/skills/` / `.agents/skills/` |
+| omp (Oh My Pi) | `~/.omp/agent/skills/` / `.omp/skills/` |
 
-**Revised 2026-08-20.** All three tools read `SKILL.md` directories natively, so every adapter
-is a plain copy, no format translation, and all share the §5/§10 drift/adopt handling. The
+**Revised 2026-08-20.** All these tools read `SKILL.md` directories natively, so every adapter
+is a copy, no format translation, and all share the §5/§10 drift/adopt handling. The
 earlier design (Cursor `.mdc` rules, Codex managed section in `AGENTS.md`) was wrong on both
 counts: it was lossy, and Cursor's global scope silently produced no files at all. Codex paths
 per OpenAI's skills docs (learn.chatgpt.com/docs/build-skills, checked 2026-08-20); `AGENTS.md`
 is a separate mechanism for general instructions and is left untouched.
 
+**Revised 2026-09-13.** omp added. It is the one adapter that rewrites content: exposure (§11)
+has no out-of-band knob there, so the tier is written into the installed copy's frontmatter as
+`hide: true`. Because its copy differs from the source, the install record keeps a per-tool
+output hash (`installed.<skill>.outputs.<tool>`) alongside the source hash; drift detection
+compares against that. omp's native provider outranks the `~/.claude/skills` copies it would
+otherwise discover, so running both tools is not double-installing.
+
 Unverified: whether Codex still reads the older `~/.codex/skills/` as a legacy fallback. We
 write only the documented location.
 
-v1 targets: Claude Code, Cursor, Codex CLI. Copilot later. Adapter interface is the extension point for new tools.
+v1 targets: Claude Code, Cursor, Codex CLI, omp. Copilot later. Adapter interface is the extension point for new tools.
 
 ### 4. Scope: project manifest + user subscription
 - **Project-local:** project commits `skillsync.yaml` listing skills the project needs. Anyone syncing inside that project gets them project-local automatically, team guarantee.
@@ -89,12 +97,12 @@ Rationale: managed-overwrite (§5) applies only to files SkillSync installed; ha
 ### 11. Exposure: availability is not listing (decided 2026-09-09)
 Claude Code loads every installed skill's name and description into context each turn and caps the listing at ~1% of the context window (`skillListingBudgetFraction`), truncating descriptions past that. With ~100 synced skills the trigger phrases are what gets cut. Per-project install lists would bound the cost but defeat "everything, everywhere" (§4), so instead:
 - **Two states.** *Available* = files on disk, slash command works (every synced skill). *Exposed* = description in Claude's context. Declared per skill as `metadata.exposure: auto | on-demand` (default on-demand) in SKILL.md, a spec-legal key so the file still uploads elsewhere. `disable-model-invocation` frontmatter and `prefix:name` renames are rejected: both break the Agent Skills spec, and the colon is illegal on Windows.
-- **Sync writes the knob.** After installing, sync merges Claude Code's `skillOverrides` map in `~/.claude/settings.json`: auto → `"on"`, on-demand → `"user-invocable-only"`. Only managed skills are touched; state.json records what was written so `remove`/`uninstall` can take it back.
+- **Sync writes the knob.** Exposure is decided before installing, then written wherever the tool keeps it. Claude Code: merge its `skillOverrides` map in `~/.claude/settings.json` (auto → `"on"`, on-demand → `"user-invocable-only"`). omp: `hide: true` in the installed copy's frontmatter, which means the same thing there — not listed to the model, still loaded, still reachable by `/skill:<name>` and `skill://<name>`; `name-only` has no omp equivalent and stays listed. Only managed skills are touched; state.json records what was written so `remove`/`uninstall` can take it back.
 - **Usage adjusts per machine.** From the §8 event log: on-demand invoked ≥3× in 30 days → `"on"`; auto unused 90 days → `"name-only"`. A tier change in the repo resets the clocks. Thresholds live in config.json `exposure`, not code.
-- **Hubs.** A prefix family with ≥8 hidden members gets one generated router skill (`marketing`, `design`) in `~/.claude/skills`: description summarizes the family, body tables members and their SKILL.md paths. Marker comment; regenerated/removed by sync; a real skill owning the prefix name wins.
+- **Hubs.** A prefix family with ≥8 hidden members gets one generated router skill (`marketing`, `design`), written into every enabled tool's skills directory with paths into that same directory: description summarizes the family, body tables members and their SKILL.md paths. Marker comment; regenerated/removed by sync; a real skill owning the prefix name wins.
 - **Budget check.** `skillsync check` (run by the session-start hook) sums listed descriptions against the budget and names the largest contributors, so truncation never happens silently.
 
-Not done: Cursor/Codex have no overrides knob, so the two concepts collapse to the install set there; the proposal's "install auto + hubs only" flag for those tools is deferred. `skillsync.yaml` keeps its install-list semantics; project-level promotion is a hand-written `.claude/settings.local.json`.
+Not done: Cursor/Codex have no exposure mechanism at all, so the two concepts collapse to the install set there; the proposal's "install auto + hubs only" flag for those tools is deferred. `skillsync.yaml` keeps its install-list semantics; project-level promotion is a hand-written `.claude/settings.local.json`.
 
 ## Implementation status (2026-08-20)
 All six build slices implemented and verified (unit tests + end-to-end smoke): CLI (`init/sync/sync-all/list/add/remove/adopt`), daemon (launchd + systemd user timer), Claude Code hooks (`hook install`: SessionStart sync + PostToolUse Skill tracking), adapters (Claude Code passthrough, Cursor `.mdc` project rules, Codex managed AGENTS.md section), metrics (`track`/`stats` + HTTPS sink flush), multi-source precedence + per-source pin. Codex adapter decision: managed marker section in AGENTS.md, user content preserved.

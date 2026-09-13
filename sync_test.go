@@ -195,6 +195,89 @@ func TestCodexAdapterUsesAgentsSkills(t *testing.T) {
 	}
 }
 
+// omp has no skillOverrides file: the tier has to ride in the installed copy's
+// frontmatter (SPEC §11). The source repo and the other tools' copies must not
+// see the rewrite, and a rewritten copy must still look up to date next sync —
+// otherwise every sync reports a change and warns about drift.
+func TestOmpAdapterWritesTierIntoFrontmatter(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := t.TempDir()
+	body := "---\nname: mkt-cro\ndescription: d\n---\nbody\n"
+	dir := writeSkill(t, repo, "mkt-cro", body)
+	sk := Skill{Name: "mkt-cro", Dir: dir, Source: "s", Override: overrideInvocable}
+	a := adapters["omp"].(dirAdapter)
+	stateMap := map[string]InstalledSkill{}
+
+	if verb, err := a.Install(sk, "", stateMap); err != nil || verb != "installed" {
+		t.Fatalf("install: verb=%q err=%v", verb, err)
+	}
+	installed := filepath.Join(ompGlobalDir(), "mkt-cro", "SKILL.md")
+	got, err := os.ReadFile(installed)
+	if err != nil || !strings.Contains(string(got), "\nhide: true\n") {
+		t.Fatalf("hidden tier not written into the omp copy: %v\n%s", err, got)
+	}
+	if src, _ := os.ReadFile(filepath.Join(dir, "SKILL.md")); string(src) != body {
+		t.Fatalf("source repo was modified: %q", src)
+	}
+
+	if verb, err := a.Install(sk, "", stateMap); err != nil || verb != "" {
+		t.Fatalf("second sync should be a no-op: verb=%q err=%v", verb, err)
+	}
+
+	// Promotion: the same source now installs listed, and the hide line goes.
+	sk.Override = overrideOn
+	if verb, err := a.Install(sk, "", stateMap); err != nil || verb != "updated" {
+		t.Fatalf("promotion: verb=%q err=%v", verb, err)
+	}
+	if got, _ := os.ReadFile(installed); strings.Contains(string(got), "hide: true") {
+		t.Fatalf("promoted skill should not be hidden:\n%s", got)
+	}
+
+	// Project scope lands under <root>/.omp/skills.
+	proj := t.TempDir()
+	if _, err := a.Install(sk, proj, map[string]InstalledSkill{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(proj, ".omp", "skills", "mkt-cro", "SKILL.md")); err != nil {
+		t.Fatalf("omp project skill missing: %v", err)
+	}
+}
+
+func TestHideFrontmatter(t *testing.T) {
+	cases := map[string]string{
+		"---\nname: a\ndescription: d\n---\nbody": "---\nname: a\ndescription: d\nhide: true\n---\nbody",
+		"---\nname: a\nhide: false\n---\nbody":    "---\nname: a\nhide: false\n---\nbody", // the repo decided; leave it
+		"no frontmatter":                          "no frontmatter",
+		"---\nname: a\nunterminated":              "---\nname: a\nunterminated",
+	}
+	for in, want := range cases {
+		if got := string(hideFrontmatter([]byte(in))); got != want {
+			t.Errorf("%q:\n got %q\nwant %q", in, got, want)
+		}
+	}
+}
+
+// The first sync on a machine must decide tiers for skills it is about to
+// install, not only for ones already in the install record: the omp adapter
+// writes the tier during that install, so an empty set would install every
+// skill listed and hide it only on the next run.
+func TestPlannedInstallsCoversFirstSync(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := t.TempDir()
+	resolved := []Skill{{Name: "fresh", Dir: writeSkill(t, repo, "fresh", "x"), Source: "s"}}
+	planned := plannedInstalls(&Config{}, &State{Installed: map[string]InstalledSkill{}}, resolved)
+	if !planned["fresh"] {
+		t.Fatalf("subscribed but not-yet-installed skill missing from planned set: %v", planned)
+	}
+	empty := []string{}
+	planned = plannedInstalls(&Config{GlobalSkills: &empty}, &State{Installed: map[string]InstalledSkill{}}, resolved)
+	if planned["fresh"] {
+		t.Fatalf("unsubscribed skill should not be planned: %v", planned)
+	}
+}
+
 func TestTrackAndStats(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -368,7 +451,6 @@ func TestAdapterRemove(t *testing.T) {
 		t.Fatal("codex skill not removed")
 	}
 }
-
 
 func TestHookUninstallPreservesOtherHooks(t *testing.T) {
 	home := t.TempDir()

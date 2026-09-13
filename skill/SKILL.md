@@ -25,7 +25,7 @@ hand. Do not add them unless the user asked for them by name.
 
 To install into more than Claude Code:
 
-    skillsync init <git-url> --tools claude-code,cursor,codex
+    skillsync init <git-url> --tools claude-code,cursor,codex,omp
 
 `init` ends by printing `auto status`. Report that block to the user verbatim.
 If it says "Not updating automatically", the setup is incomplete; run the fix
@@ -37,8 +37,12 @@ user `skillsync hook print` so they can add the hooks themselves.
 ## Adding or changing a skill
 
 Edit the team repo, never the installed copy. Anything under
-`~/.claude/skills/<name>/` (or the Cursor/Codex equivalents) that skillsync
-manages is overwritten on the next sync, and local edits are lost.
+`~/.claude/skills/<name>/` (or the Cursor/Codex/omp equivalents) that skillsync
+manages is overwritten on the next sync, and local edits are lost. The omp copy
+under `~/.omp/agent/skills/<name>/` is the one file skillsync rewrites: an
+on-demand skill gets `hide: true` added to its frontmatter, which is how omp
+keeps it out of the model's listing while `/skill:<name>` still works. Do not
+copy that line back into the repo.
 
 Repo layout, one directory per skill:
 
@@ -52,6 +56,23 @@ machine syncing from that repo has it within 15 minutes, or immediately after
 
 To keep a personal variant of a managed skill, copy it under a different name;
 unmanaged names are never touched.
+
+## Reporting a problem with a skill
+
+When a managed skill gave wrong or unhelpful guidance, do not patch the
+installed copy and do not just note it in memory. Send it upstream:
+
+    skillsync feedback <skill> -m "<what happened>" \
+      --proposal "<the SKILL.md wording that would have prevented it>" \
+      --eval-prompt "<a user request that reproduces it>" \
+      --eval-rubric "<what a correct response must do>"
+
+This opens an issue on the skill's source repo. Always include an eval prompt
+and at least one rubric line: the case is appended to the repo's evals when
+the fix is adopted, so it must fail today and pass after the change. Use
+`--eval-negative` when the problem is the skill triggering where it should
+not. Report the issue URL to the user. If the command says `gh` is missing or
+the source is not GitHub, re-run with `--dry-run` and give the user the body.
 
 ## Checking that updates arrive
 

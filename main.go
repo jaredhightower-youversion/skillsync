@@ -89,6 +89,11 @@ type UpdateInfo struct {
 type InstalledSkill struct {
 	Source string `json:"source"`
 	Hash   string `json:"hash"`
+	// Outputs is the hash of what each tool's copy should contain, keyed by
+	// tool name. It equals Hash for every adapter that copies byte for byte;
+	// omp rewrites frontmatter, so its copy hashes differently and needs its
+	// own record to tell "we wrote this" from "the user edited it".
+	Outputs map[string]string `json:"outputs,omitempty"`
 }
 
 func homeDir() string {
@@ -175,7 +180,7 @@ func fatal(format string, args ...any) {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   skillsync init <git-url>            set up this machine: sync now, then keep syncing on its own
-      --tools claude-code,cursor,codex  which agent tools to install into (default: claude-code)
+      --tools claude-code,cursor,codex,omp  which agent tools to install into (default: claude-code)
       --no-daemon / --no-hooks          escape hatches for CI or locked-down machines: skills then
                                         go stale until you run "skillsync sync" yourself
   skillsync sync                      sync now
@@ -184,6 +189,7 @@ func usage() {
   skillsync add|remove <skill>        manage your global subscriptions
   skillsync adopt <skill>             replace a hand-installed skill with the managed version
   skillsync stats                     how often each skill gets used
+  skillsync feedback <skill> -m ...   open an issue on the skill's repo with the problem, a proposed fix, and an eval case
   skillsync auto on|off|status        automatic updating: background job + Claude Code hooks
   skillsync upgrade                   replace this binary with the latest release
   skillsync version                   print the installed version
@@ -248,6 +254,8 @@ func main() {
 		cmdTrack(os.Args[2:])
 	case "stats":
 		cmdStats()
+	case "feedback":
+		cmdFeedback(os.Args[2:])
 	case "upgrade":
 		cmdUpgrade()
 	case "version", "--version", "-v":

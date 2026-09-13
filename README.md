@@ -65,7 +65,7 @@ Done. Skills appear in `~/.claude/skills/` and update on their own.
 To install into Cursor or Codex as well:
 
 ```sh
-skillsync init git@github.com:your-org/skills.git --tools claude-code,cursor,codex
+skillsync init git@github.com:your-org/skills.git --tools claude-code,cursor,codex,omp
 ```
 
 `--no-daemon` and `--no-hooks` skip the background job or the hooks. They exist for CI and
@@ -119,6 +119,7 @@ skills:
 | `skillsync add / remove <skill>` | Manage global subscriptions (default: all) |
 | `skillsync adopt <skill>` | Replace a hand-installed skill with the managed version |
 | `skillsync stats` | How often each skill has been used on this machine |
+| `skillsync feedback <skill> -m "..."` | Open an issue on the skill's repo: what went wrong, a proposed fix, and an eval case (see below) |
 | `skillsync auto on / off / status` | Automatic updating: the background job and Claude Code hooks |
 | `skillsync upgrade` | Replace the binary with the latest release |
 | `skillsync version` | Print the installed version |
@@ -142,6 +143,32 @@ Code after applying the usage rules (see below).
 
 Dates come from the skill repo's git history, so they reflect when a skill was actually
 edited, not when your machine last synced.
+
+## Sending a skill back for repair
+
+Sync is one-way. When a skill misfires, the fix belongs in the repo, and the person who saw the
+failure is usually an agent mid-task with no time to write it up. `feedback` opens a GitHub
+issue on the skill's source repo in a fixed shape, so the maintainer gets the same three things
+every time:
+
+```
+skillsync feedback ops-handoff \
+  -m "Resume step edited files before showing the summary the skill says to show first." \
+  --proposal "Step 4: print the summary and stop. Edit only after the user replies." \
+  --eval-prompt "Resume the handoff in HANDOFF.md" \
+  --eval-rubric "Prints the handoff summary before making any file change" \
+  --eval-rubric "Does not edit files until the user has replied"
+```
+
+The issue has four sections: what happened, the proposed change to `SKILL.md`, an eval case,
+and context (source, installed hash, reporter). The eval case is a ready-to-append entry for
+`evals/<skill>/cases.json`, the format the skill repo's runner already reads, so adopting the
+fix is: edit the skill, paste the case, run the evals. `--eval-negative` marks a prompt that
+must not trigger the skill. `--dry-run` prints the issue instead of opening it, which is also
+the fallback when the source is not on GitHub or `gh` is not installed.
+
+Needs the [`gh` CLI](https://cli.github.com) logged in to an account that can open issues on
+the repo.
 
 ## What Claude sees (installed is not the same as listed)
 
@@ -168,9 +195,13 @@ metadata:
 ---
 ```
 
-On every sync skillsync writes Claude Code's own `skillOverrides` map in
-`~/.claude/settings.json`, touching only skills it manages. `auto` becomes `"on"`,
-`on-demand` becomes `"user-invocable-only"` (hidden from Claude, still in the `/` menu).
+On every sync skillsync writes the tier wherever the tool keeps it. For Claude Code that is
+its own `skillOverrides` map in `~/.claude/settings.json`, touching only skills it manages:
+`auto` becomes `"on"`, `on-demand` becomes `"user-invocable-only"` (hidden from Claude, still
+in the `/` menu). For omp there is no such map, so the tier rides in the installed copy's
+frontmatter as `hide: true`, which omp reads the same way: not listed to the model, still
+loaded, still reachable by `/skill:<name>` and `skill://<name>`. Only omp's copy is rewritten
+— the source repo and every other tool's copy are byte-for-byte the upstream file.
 
 Then three things adjust that per machine, without touching the repo:
 
@@ -179,10 +210,11 @@ Then three things adjust that per machine, without touching the repo:
 - **Demotion.** An `auto` skill nobody invoked in 90 days drops to `"name-only"` here.
   Changing a skill's tier in the repo resets both clocks on every machine.
 - **Hubs.** A prefix family (`marketing-*`, `design-*`) with 8 or more hidden members gets
-  one generated router skill named after the prefix. Its description is listed; its body is
-  a table of the members and where their `SKILL.md` lives. One description buys the whole
-  family, and since it is built from the members' frontmatter it cannot go stale. Hubs
-  carry a marker comment and are regenerated or removed by sync.
+  one generated router skill named after the prefix, written into every enabled tool's skills
+  directory. Its description is listed; its body is a table of the members and where their
+  `SKILL.md` lives in that tool's own directory. One description buys the whole family, and
+  since it is built from the members' frontmatter it cannot go stale. Hubs carry a marker
+  comment and are regenerated or removed by sync.
 
 `skillsync check` (which the session-start hook runs) warns when the descriptions that are
 listed still exceed the budget, naming the biggest ones. It honors
@@ -191,7 +223,7 @@ listed still exceed the budget, naming the biggest ones. It honors
 A project can promote skills for sessions inside it by writing the same `skillOverrides`
 shape into its `.claude/settings.local.json`; skillsync leaves that file alone.
 
-Cursor and Codex have no equivalent setting, so on-demand skills are simply installed there
+Cursor and Codex have no exposure mechanism, so on-demand skills are simply installed there
 as before.
 
 ## Which skills actually get used
@@ -274,8 +306,10 @@ you know when you're reading stale data.
   freezes a source for change control; omit to track the default branch.
 - **tools**, which agent tools to install into (set at `init` with `--tools`, or edit here). Default: `claude-code` only.
   Available: `claude-code` (`~/.claude/skills`), `cursor` (`~/.cursor/skills`),
-  `codex` (`~/.agents/skills`). Each also installs project-locally under the
-  same relative path.
+  `codex` (`~/.agents/skills`), `omp` (`~/.omp/agent/skills`). Each also installs
+  project-locally under the same relative path (omp: `.omp/skills`). omp discovers its own
+  directory at a higher priority than the `~/.claude/skills` copies, so enabling both tools
+  installs twice but loads once.
 - **metrics.endpoint**, optional sink for usage events; must be `https://` (cleartext is
   refused, since events name what you are working on). Omit for local-only stats.
 - **exposure**, thresholds for the promote/demote rules and hub generation described above.

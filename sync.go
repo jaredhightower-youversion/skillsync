@@ -23,6 +23,10 @@ type Skill struct {
 	Source      string
 	Description string // frontmatter description, what Claude sees when exposed
 	Exposure    string // frontmatter metadata.exposure, "" = on-demand
+	// Override is the exposure tier this sync decided for the skill, set
+	// before install so an adapter that writes the tier into the installed
+	// copy (omp) has it. Empty means undecided: install it listed.
+	Override string
 }
 
 // resolveSkills fetches every source and merges their skills; earlier sources
@@ -198,6 +202,15 @@ func cmdSync() {
 		fatal("%v", resolveErr)
 	}
 
+	// Exposure is decided before installing because omp carries the tier in
+	// the installed file itself; deciding after would write every skill
+	// listed and only hide it on the next sync.
+	now := time.Now().UTC()
+	desired := decideExposure(cfg, state, resolved, plannedInstalls(cfg, state, resolved), now)
+	for i := range resolved {
+		resolved[i].Override = desired[resolved[i].Name]
+	}
+
 	syncGlobal(cfg, state, resolved)
 	for _, root := range state.Projects {
 		if _, err := os.Stat(filepath.Join(root, manifestName)); err != nil {
@@ -209,10 +222,40 @@ func cmdSync() {
 		syncProject(cfg, state, resolved, root)
 		state.Projects = append(state.Projects, root)
 	}
-	syncExposure(cfg, state, resolved, time.Now().UTC())
+	applyExposure(cfg, state, resolved, desired, now)
 	recordLatestVersion(state)
 	mustSaveState(state)
 	flushMetrics(cfg)
+}
+
+// plannedInstalls names every skill this sync intends to have installed
+// somewhere: the global subscriptions, whatever the registered projects'
+// manifests list, and anything already installed. Exposure is decided over
+// this set rather than over the install record alone, so the first sync on a
+// machine writes the same tiers as every later one.
+func plannedInstalls(cfg *Config, state *State, resolved []Skill) map[string]bool {
+	planned := map[string]bool{}
+	for _, sk := range resolved {
+		if cfg.subscribed(sk.Name) {
+			planned[sk.Name] = true
+		}
+	}
+	for name := range state.Installed {
+		planned[name] = true
+	}
+	for root, installed := range state.ProjectInstalled {
+		for name := range installed {
+			planned[name] = true
+		}
+		names, err := readManifest(filepath.Join(root, manifestName))
+		if err != nil {
+			continue
+		}
+		for _, name := range names {
+			planned[name] = true
+		}
+	}
+	return planned
 }
 
 func mustResolve() (*Config, *State, []Skill) {
@@ -374,6 +417,9 @@ func cmdAdopt(name string) {
 		fatal("skill %q not found in any source", name)
 	}
 	sk := resolved[i]
+	// Adopt with the tier this machine last decided, so the adopted copy
+	// matches what the next sync would write instead of churning once.
+	sk.Override = state.Exposure[sk.Name].Written
 
 	root := findProjectRoot(mustGetwd())
 	scopeMap := state.Installed
@@ -425,7 +471,7 @@ func cmdUninstall(keepSkills bool) {
 	removeExposure(state)
 	if !keepSkills {
 		for _, hub := range state.Hubs {
-			removeHub(hub)
+			removeHub(cfg, hub)
 		}
 	}
 	cmdDaemon("uninstall")
@@ -554,29 +600,78 @@ func hashDir(dir string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// copyDir replaces dest with an exact copy of src (atomic replace per skill:
-// stage next to dest, then rename over).
-func copyDir(src, dest string) error {
+// hashDirWith hashes what an adapter's transform would write for a skill, in
+// the same format as hashDir, so the two are comparable: a transforming
+// adapter compares its expected output against the hash of what is on disk.
+func hashDirWith(sk Skill, tf transform) (string, error) {
+	h := sha256.New()
+	err := walkSkill(sk, tf, func(rel string, content []byte) error {
+		fmt.Fprintf(h, "%s\x00", rel)
+		h.Write(content)
+		h.Write([]byte{0})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// walkSkill visits a skill's regular files in the same sorted order hashDir
+// uses, with the adapter's transform already applied.
+func walkSkill(sk Skill, tf transform, visit func(rel string, content []byte) error) error {
+	var files []string
+	err := filepath.WalkDir(sk.Dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.Type().IsRegular() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	sort.Strings(files)
+	for _, f := range files {
+		rel, _ := filepath.Rel(sk.Dir, f)
+		rel = filepath.ToSlash(rel)
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		if tf != nil {
+			b = tf(sk, rel, b)
+		}
+		if err := visit(rel, b); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyDir replaces dest with the skill's directory, transform applied (atomic
+// replace per skill: stage next to dest, then rename over).
+func copyDir(sk Skill, dest string, tf transform) error {
 	staging := dest + ".skillsync-tmp"
 	os.RemoveAll(staging)
-	err := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	// Directories first, so empty ones survive the copy too.
+	err := filepath.WalkDir(sk.Dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(src, path)
-		target := filepath.Join(staging, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		if !d.Type().IsRegular() {
+		if !d.IsDir() {
 			return nil
 		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, b, 0o644)
+		rel, _ := filepath.Rel(sk.Dir, path)
+		return os.MkdirAll(filepath.Join(staging, rel), 0o755)
 	})
+	if err == nil {
+		err = walkSkill(sk, tf, func(rel string, content []byte) error {
+			return os.WriteFile(filepath.Join(staging, filepath.FromSlash(rel)), content, 0o644)
+		})
+	}
 	if err != nil {
 		os.RemoveAll(staging)
 		return err

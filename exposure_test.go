@@ -129,6 +129,44 @@ func TestSyncExposure(t *testing.T) {
 	}
 }
 
+// A hidden skill needs a listed router in whichever directory the tool reads,
+// with paths into that same directory — omp never looks in ~/.claude/skills.
+func TestHubsWrittenForEveryTool(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := &Config{Tools: []string{"claude-code", "omp"}}
+	cfg.Exposure.applyDefaults()
+	state := loadState()
+	repo := t.TempDir()
+	var resolved []Skill
+	for i := range 9 {
+		name := "mkt-" + string(rune('a'+i))
+		dir := writeSkill(t, repo, name, "---\ndescription: marketing thing\n---\n")
+		resolved = append(resolved, discoverOne(t, dir))
+		state.Installed[name] = InstalledSkill{Source: "default"}
+	}
+
+	syncExposure(cfg, state, resolved, time.Now())
+
+	for _, dir := range []string{claudeGlobalDir(), ompGlobalDir()} {
+		hub, err := os.ReadFile(filepath.Join(dir, "mkt", "SKILL.md"))
+		if err != nil {
+			t.Fatalf("hub missing in %s: %v", dir, err)
+		}
+		if !strings.Contains(string(hub), filepath.Join(dir, "mkt-a", "SKILL.md")) {
+			t.Errorf("hub in %s should route to its own copies:\n%s", dir, hub)
+		}
+	}
+
+	state.Installed = map[string]InstalledSkill{}
+	syncExposure(cfg, state, resolved, time.Now())
+	for _, dir := range []string{claudeGlobalDir(), ompGlobalDir()} {
+		if _, err := os.Stat(filepath.Join(dir, "mkt")); !os.IsNotExist(err) {
+			t.Errorf("hub in %s should be removed once the family is gone", dir)
+		}
+	}
+}
+
 func discoverOne(t *testing.T, dir string) Skill {
 	t.Helper()
 	skills, err := discoverSkills(dir)
