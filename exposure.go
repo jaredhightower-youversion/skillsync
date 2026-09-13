@@ -208,17 +208,10 @@ func lastUse(times []time.Time) time.Time {
 	return last
 }
 
-// syncExposure decides an override for every managed skill, regenerates hub
-// skills, and writes the result into Claude Code's settings. Runs after the
-// files are in place so a hub never points at a member that is not there.
+// syncExposure decides a tier for every managed skill and applies it. Kept as
+// one call for callers that already have the files in place; cmdSync splits
+// it, because the omp adapter needs the tier while it installs.
 func syncExposure(cfg *Config, state *State, resolved []Skill, now time.Time) {
-	if !slices.Contains(cfg.Tools, "claude-code") {
-		return
-	}
-	byName := map[string]Skill{}
-	for _, sk := range resolved {
-		byName[sk.Name] = sk
-	}
 	managed := map[string]bool{}
 	for name := range state.Installed {
 		managed[name] = true
@@ -228,7 +221,14 @@ func syncExposure(cfg *Config, state *State, resolved []Skill, now time.Time) {
 			managed[name] = true
 		}
 	}
+	applyExposure(cfg, state, resolved, decideExposure(cfg, state, resolved, managed, now), now)
+}
 
+// decideExposure resolves the tier for every skill in `managed` and records it
+// in state.Exposure. It touches no tool's files, so a caller can decide first
+// and hand the tiers to the adapters.
+func decideExposure(cfg *Config, state *State, resolved []Skill, managed map[string]bool, now time.Time) map[string]string {
+	byName := skillsByName(resolved)
 	uses := usageBySkill()
 	desired := map[string]string{}
 	for name := range managed {
@@ -251,7 +251,16 @@ func syncExposure(cfg *Config, state *State, resolved []Skill, now time.Time) {
 		desired[name] = rec.Written
 		state.Exposure[name] = rec
 	}
-	syncHubs(cfg, state, byName, desired, now)
+	return desired
+}
+
+// applyExposure regenerates the hubs and writes Claude Code's skillOverrides.
+// Hubs are generated for every tool that copies skills, because a hidden skill
+// needs a listed router whatever is reading it; skillOverrides is Claude
+// Code's own file and is written only when Claude Code is a target (omp reads
+// its tier from the frontmatter the adapter wrote).
+func applyExposure(cfg *Config, state *State, resolved []Skill, desired map[string]string, now time.Time) {
+	syncHubs(cfg, state, skillsByName(resolved), desired, now)
 	var drop []string
 	for name := range state.Exposure {
 		if _, keep := desired[name]; !keep {
@@ -259,9 +268,20 @@ func syncExposure(cfg *Config, state *State, resolved []Skill, now time.Time) {
 			delete(state.Exposure, name)
 		}
 	}
+	if !slices.Contains(cfg.Tools, "claude-code") {
+		return
+	}
 	if err := writeOverrides(desired, drop); err != nil {
 		fmt.Fprintf(os.Stderr, "skillsync: %v\n", err)
 	}
+}
+
+func skillsByName(resolved []Skill) map[string]Skill {
+	byName := make(map[string]Skill, len(resolved))
+	for _, sk := range resolved {
+		byName[sk.Name] = sk
+	}
+	return byName
 }
 
 // writeOverrides merges `set` into skillOverrides and deletes `drop`, touching

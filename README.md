@@ -65,7 +65,7 @@ Done. Skills appear in `~/.claude/skills/` and update on their own.
 To install into Cursor or Codex as well:
 
 ```sh
-skillsync init git@github.com:your-org/skills.git --tools claude-code,cursor,codex
+skillsync init git@github.com:your-org/skills.git --tools claude-code,cursor,codex,omp
 ```
 
 `--no-daemon` and `--no-hooks` skip the background job or the hooks. They exist for CI and
@@ -195,9 +195,13 @@ metadata:
 ---
 ```
 
-On every sync skillsync writes Claude Code's own `skillOverrides` map in
-`~/.claude/settings.json`, touching only skills it manages. `auto` becomes `"on"`,
-`on-demand` becomes `"user-invocable-only"` (hidden from Claude, still in the `/` menu).
+On every sync skillsync writes the tier wherever the tool keeps it. For Claude Code that is
+its own `skillOverrides` map in `~/.claude/settings.json`, touching only skills it manages:
+`auto` becomes `"on"`, `on-demand` becomes `"user-invocable-only"` (hidden from Claude, still
+in the `/` menu). For omp there is no such map, so the tier rides in the installed copy's
+frontmatter as `hide: true`, which omp reads the same way: not listed to the model, still
+loaded, still reachable by `/skill:<name>` and `skill://<name>`. Only omp's copy is rewritten
+— the source repo and every other tool's copy are byte-for-byte the upstream file.
 
 Then three things adjust that per machine, without touching the repo:
 
@@ -206,10 +210,11 @@ Then three things adjust that per machine, without touching the repo:
 - **Demotion.** An `auto` skill nobody invoked in 90 days drops to `"name-only"` here.
   Changing a skill's tier in the repo resets both clocks on every machine.
 - **Hubs.** A prefix family (`marketing-*`, `design-*`) with 8 or more hidden members gets
-  one generated router skill named after the prefix. Its description is listed; its body is
-  a table of the members and where their `SKILL.md` lives. One description buys the whole
-  family, and since it is built from the members' frontmatter it cannot go stale. Hubs
-  carry a marker comment and are regenerated or removed by sync.
+  one generated router skill named after the prefix, written into every enabled tool's skills
+  directory. Its description is listed; its body is a table of the members and where their
+  `SKILL.md` lives in that tool's own directory. One description buys the whole family, and
+  since it is built from the members' frontmatter it cannot go stale. Hubs carry a marker
+  comment and are regenerated or removed by sync.
 
 `skillsync check` (which the session-start hook runs) warns when the descriptions that are
 listed still exceed the budget, naming the biggest ones. It honors
@@ -218,7 +223,7 @@ listed still exceed the budget, naming the biggest ones. It honors
 A project can promote skills for sessions inside it by writing the same `skillOverrides`
 shape into its `.claude/settings.local.json`; skillsync leaves that file alone.
 
-Cursor and Codex have no equivalent setting, so on-demand skills are simply installed there
+Cursor and Codex have no exposure mechanism, so on-demand skills are simply installed there
 as before.
 
 ## Which skills actually get used
@@ -301,8 +306,10 @@ you know when you're reading stale data.
   freezes a source for change control; omit to track the default branch.
 - **tools**, which agent tools to install into (set at `init` with `--tools`, or edit here). Default: `claude-code` only.
   Available: `claude-code` (`~/.claude/skills`), `cursor` (`~/.cursor/skills`),
-  `codex` (`~/.agents/skills`). Each also installs project-locally under the
-  same relative path.
+  `codex` (`~/.agents/skills`), `omp` (`~/.omp/agent/skills`). Each also installs
+  project-locally under the same relative path (omp: `.omp/skills`). omp discovers its own
+  directory at a higher priority than the `~/.claude/skills` copies, so enabling both tools
+  installs twice but loads once.
 - **metrics.endpoint**, optional sink for usage events; must be `https://` (cleartext is
   refused, since events name what you are working on). Omit for local-only stats.
 - **exposure**, thresholds for the promote/demote rules and hub generation described above.

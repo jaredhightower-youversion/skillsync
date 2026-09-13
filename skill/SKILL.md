@@ -25,7 +25,7 @@ hand. Do not add them unless the user asked for them by name.
 
 To install into more than Claude Code:
 
-    skillsync init <git-url> --tools claude-code,cursor,codex
+    skillsync init <git-url> --tools claude-code,cursor,codex,omp
 
 `init` ends by printing `auto status`. Report that block to the user verbatim.
 If it says "Not updating automatically", the setup is incomplete; run the fix
@@ -37,8 +37,12 @@ user `skillsync hook print` so they can add the hooks themselves.
 ## Adding or changing a skill
 
 Edit the team repo, never the installed copy. Anything under
-`~/.claude/skills/<name>/` (or the Cursor/Codex equivalents) that skillsync
-manages is overwritten on the next sync, and local edits are lost.
+`~/.claude/skills/<name>/` (or the Cursor/Codex/omp equivalents) that skillsync
+manages is overwritten on the next sync, and local edits are lost. The omp copy
+under `~/.omp/agent/skills/<name>/` is the one file skillsync rewrites: an
+on-demand skill gets `hide: true` added to its frontmatter, which is how omp
+keeps it out of the model's listing while `/skill:<name>` still works. Do not
+copy that line back into the repo.
 
 Repo layout, one directory per skill:
 

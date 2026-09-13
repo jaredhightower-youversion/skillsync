@@ -89,6 +89,11 @@ type UpdateInfo struct {
 type InstalledSkill struct {
 	Source string `json:"source"`
 	Hash   string `json:"hash"`
+	// Outputs is the hash of what each tool's copy should contain, keyed by
+	// tool name. It equals Hash for every adapter that copies byte for byte;
+	// omp rewrites frontmatter, so its copy hashes differently and needs its
+	// own record to tell "we wrote this" from "the user edited it".
+	Outputs map[string]string `json:"outputs,omitempty"`
 }
 
 func homeDir() string {
@@ -175,7 +180,7 @@ func fatal(format string, args ...any) {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   skillsync init <git-url>            set up this machine: sync now, then keep syncing on its own
-      --tools claude-code,cursor,codex  which agent tools to install into (default: claude-code)
+      --tools claude-code,cursor,codex,omp  which agent tools to install into (default: claude-code)
       --no-daemon / --no-hooks          escape hatches for CI or locked-down machines: skills then
                                         go stale until you run "skillsync sync" yourself
   skillsync sync                      sync now
