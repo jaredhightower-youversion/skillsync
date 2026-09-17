@@ -1,13 +1,5 @@
 package main
 
-import (
-	"fmt"
-	"os"
-	"runtime"
-	"strings"
-	"time"
-)
-
 // Failure surfacing. A background job that quietly stopped working is this
 // tool's worst failure: skills stop updating, nothing errors in front of
 // anyone, and you find out weeks later when a teammate asks why you did not
@@ -21,6 +13,13 @@ import (
 //
 // cmdAuto replaces the older `daemon` and `hook` commands, which split one
 // user-facing idea ("is this updating by itself?") across two command trees.
+
+import (
+	"fmt"
+	"os"
+	"runtime"
+	"time"
+)
 
 func cmdAuto(sub string) {
 	switch sub {
@@ -116,19 +115,6 @@ func warnIfUnhealthy() {
 	}
 	fmt.Fprintf(os.Stderr, "skillsync: last successful sync was %s. Run `skillsync auto status`\n",
 		humanAge(h.LastSuccess))
-}
-
-// recordSync stores the outcome of a sync attempt. Errors are truncated: this
-// is a status line, not a log.
-func recordSync(state *State, syncErr error) {
-	now := time.Now().UTC()
-	state.Health.LastAttempt = now
-	if syncErr != nil {
-		state.Health.LastError = truncate(strings.ReplaceAll(syncErr.Error(), "\n", " "), 200)
-		return
-	}
-	state.Health.LastSuccess = now
-	state.Health.LastError = ""
 }
 
 func daemonInstalled() bool {
