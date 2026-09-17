@@ -57,50 +57,6 @@ var adapters = map[string]Adapter{
 
 func claudeGlobalDir() string { return filepath.Join(homeDir(), ".claude", "skills") }
 
-func ompGlobalDir() string { return filepath.Join(homeDir(), ".omp", "agent", "skills") }
-
-// transform rewrites one file on its way from the source repo into a tool's
-// skills directory. rel is the path relative to the skill directory.
-type transform func(sk Skill, rel string, content []byte) []byte
-
-// ompExposure is omp's half of SPEC §11. Claude Code takes the tier out of
-// band through skillOverrides; omp reads `hide: true` from the skill's own
-// frontmatter, where it means exactly what user-invocable-only means in Claude
-// Code: not listed to the model, still loaded, still reachable through
-// `/skill:<name>` and `skill://<name>`. name-only has no omp equivalent — the
-// skill was declared auto, so it stays listed rather than disappearing.
-func ompExposure(sk Skill, rel string, content []byte) []byte {
-	if rel != "SKILL.md" || sk.Override != overrideInvocable {
-		return content
-	}
-	return hideFrontmatter(content)
-}
-
-// hideFrontmatter adds `hide: true` to a SKILL.md's frontmatter block. A file
-// without frontmatter is left alone: omp's native provider requires a
-// description, so such a file was never going to load, and synthesizing a
-// block would change what the repo said. A `hide` the repo set itself wins.
-func hideFrontmatter(content []byte) []byte {
-	lines := strings.Split(string(content), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return content
-	}
-	for i, line := range lines[1:] {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" {
-			out := make([]string, 0, len(lines)+1)
-			out = append(out, lines[:i+1]...)
-			out = append(out, "hide: true")
-			out = append(out, lines[i+1:]...)
-			return []byte(strings.Join(out, "\n"))
-		}
-		if key, _, ok := strings.Cut(line, ":"); ok && key == "hide" {
-			return content
-		}
-	}
-	return content // unterminated frontmatter; not ours to repair
-}
-
 // dirAdapter installs a skill by copying its directory to a tool's skills
 // path. It owns the §5/§10 drift/adopt decision table because its output is
 // something the user may also have installed by hand.
@@ -195,12 +151,46 @@ func (a dirAdapter) Remove(name, projectRoot string) error {
 	return os.RemoveAll(filepath.Join(base, name))
 }
 
-func writeIfChanged(path string, content []byte) error {
-	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(content) {
-		return nil
+func ompGlobalDir() string { return filepath.Join(homeDir(), ".omp", "agent", "skills") }
+
+// transform rewrites one file on its way from the source repo into a tool's
+// skills directory. rel is the path relative to the skill directory.
+type transform func(sk Skill, rel string, content []byte) []byte
+
+// ompExposure is omp's half of SPEC §11. Claude Code takes the tier out of
+// band through skillOverrides; omp reads `hide: true` from the skill's own
+// frontmatter, where it means exactly what user-invocable-only means in Claude
+// Code: not listed to the model, still loaded, still reachable through
+// `/skill:<name>` and `skill://<name>`. name-only has no omp equivalent — the
+// skill was declared auto, so it stays listed rather than disappearing.
+func ompExposure(sk Skill, rel string, content []byte) []byte {
+	if rel != "SKILL.md" || sk.Override != overrideInvocable {
+		return content
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	return hideFrontmatter(content)
+}
+
+// hideFrontmatter adds `hide: true` to a SKILL.md's frontmatter block. A file
+// without frontmatter is left alone: omp's native provider requires a
+// description, so such a file was never going to load, and synthesizing a
+// block would change what the repo said. A `hide` the repo set itself wins.
+func hideFrontmatter(content []byte) []byte {
+	lines := strings.Split(string(content), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return content
 	}
-	return os.WriteFile(path, content, 0o644)
+	for i, line := range lines[1:] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			out := make([]string, 0, len(lines)+1)
+			out = append(out, lines[:i+1]...)
+			out = append(out, "hide: true")
+			out = append(out, lines[i+1:]...)
+			return []byte(strings.Join(out, "\n"))
+		}
+		if key, _, ok := strings.Cut(line, ":"); ok && key == "hide" {
+			return content
+		}
+	}
+	return content // unterminated frontmatter; not ours to repair
 }

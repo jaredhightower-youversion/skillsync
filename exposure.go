@@ -1,5 +1,12 @@
 package main
 
+// Exposure (SPEC §11) separates "installed" from "listed to Claude". Every
+// synced skill is installed and runs by slash command; only skills a repo marks
+// `metadata.exposure: auto` get their description into Claude's context. The
+// knob is Claude Code's own `skillOverrides` map in ~/.claude/settings.json,
+// which nothing else writes. Claude Code truncates the skill listing at ~1% of
+// the context window, so exposing everything makes the wrong skill fire or none.
+
 import (
 	"fmt"
 	"os"
@@ -10,13 +17,6 @@ import (
 	"strings"
 	"time"
 )
-
-// Exposure (SPEC §11) separates "installed" from "listed to Claude". Every
-// synced skill is installed and runs by slash command; only skills a repo marks
-// `metadata.exposure: auto` get their description into Claude's context. The
-// knob is Claude Code's own `skillOverrides` map in ~/.claude/settings.json,
-// which nothing else writes. Claude Code truncates the skill listing at ~1% of
-// the context window, so exposing everything makes the wrong skill fire or none.
 
 // Values of `metadata.exposure` in SKILL.md frontmatter.
 const (
@@ -61,80 +61,6 @@ type ExposureRecord struct {
 	Declared string    `json:"declared"` // tier from the repo, or "hub"
 	Since    time.Time `json:"since"`    // when Declared last changed; usage before it is ignored
 	Written  string    `json:"written"`  // skillOverrides value we wrote
-}
-
-// skillFrontmatter reads description and metadata.exposure from a SKILL.md.
-// A YAML subset: `key: value`, `>`/`|` block scalars, and one nested map.
-// ponytail: subset parser, same trade as readManifest; swap for a YAML library
-// if more frontmatter fields start to matter.
-func skillFrontmatter(path string) (description, exposure string) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", ""
-	}
-	lines := strings.Split(string(b), "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return "", ""
-	}
-	var fm []string
-	for _, l := range lines[1:] {
-		if strings.TrimSpace(l) == "---" {
-			break
-		}
-		fm = append(fm, l)
-	}
-	top := ""
-	for i := 0; i < len(fm); i++ {
-		line := fm[i]
-		if t := strings.TrimSpace(line); t == "" || strings.HasPrefix(t, "#") {
-			continue
-		}
-		key, val, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		indented := line[0] == ' ' || line[0] == '\t'
-		key, val = strings.TrimSpace(key), strings.TrimSpace(val)
-		if !indented {
-			top = key
-		}
-		switch {
-		case !indented && key == "description":
-			description, i = yamlScalar(fm, i, val)
-		case indented && top == "metadata" && key == "exposure":
-			exposure = unquote(val)
-		}
-	}
-	return description, exposure
-}
-
-// yamlScalar returns the value starting at line i: inline, or a `>`/`|` block
-// gathered from the indented lines that follow. Returns the last line consumed.
-func yamlScalar(lines []string, i int, inline string) (string, int) {
-	if !strings.HasPrefix(inline, ">") && !strings.HasPrefix(inline, "|") {
-		return unquote(inline), i
-	}
-	sep := " "
-	if inline[0] == '|' {
-		sep = "\n"
-	}
-	var parts []string
-	for i+1 < len(lines) {
-		next := lines[i+1]
-		if strings.TrimSpace(next) != "" && next[0] != ' ' && next[0] != '\t' {
-			break
-		}
-		i++
-		parts = append(parts, strings.TrimSpace(next))
-	}
-	return strings.TrimSpace(strings.Join(parts, sep)), i
-}
-
-func unquote(s string) string {
-	if len(s) >= 2 && (s[0] == '"' || s[0] == '\'') && s[len(s)-1] == s[0] {
-		return s[1 : len(s)-1]
-	}
-	return s
 }
 
 // declaredExposure normalizes a frontmatter value; unknown values are reported
@@ -222,66 +148,6 @@ func syncExposure(cfg *Config, state *State, resolved []Skill, now time.Time) {
 		}
 	}
 	applyExposure(cfg, state, resolved, decideExposure(cfg, state, resolved, managed, now), now)
-}
-
-// decideExposure resolves the tier for every skill in `managed` and records it
-// in state.Exposure. It touches no tool's files, so a caller can decide first
-// and hand the tiers to the adapters.
-func decideExposure(cfg *Config, state *State, resolved []Skill, managed map[string]bool, now time.Time) map[string]string {
-	byName := skillsByName(resolved)
-	uses := usageBySkill()
-	desired := map[string]string{}
-	for name := range managed {
-		sk, ok := byName[name]
-		if !ok {
-			continue // installed earlier, gone from every source; uninstallUnwanted handles it
-		}
-		declared := declaredExposure(sk)
-		rec, seen := state.Exposure[name]
-		if rec.Declared != declared {
-			rec = ExposureRecord{Declared: declared, Since: now}
-			if !seen {
-				// First time we see this skill: keep the usage it already has.
-				if first := firstUse(uses[name]); !first.IsZero() && first.Before(now) {
-					rec.Since = first
-				}
-			}
-		}
-		rec.Written = effectiveOverride(cfg.Exposure, declared, rec.Since, uses[name], now)
-		desired[name] = rec.Written
-		state.Exposure[name] = rec
-	}
-	return desired
-}
-
-// applyExposure regenerates the hubs and writes Claude Code's skillOverrides.
-// Hubs are generated for every tool that copies skills, because a hidden skill
-// needs a listed router whatever is reading it; skillOverrides is Claude
-// Code's own file and is written only when Claude Code is a target (omp reads
-// its tier from the frontmatter the adapter wrote).
-func applyExposure(cfg *Config, state *State, resolved []Skill, desired map[string]string, now time.Time) {
-	syncHubs(cfg, state, skillsByName(resolved), desired, now)
-	var drop []string
-	for name := range state.Exposure {
-		if _, keep := desired[name]; !keep {
-			drop = append(drop, name)
-			delete(state.Exposure, name)
-		}
-	}
-	if !slices.Contains(cfg.Tools, "claude-code") {
-		return
-	}
-	if err := writeOverrides(desired, drop); err != nil {
-		fmt.Fprintf(os.Stderr, "skillsync: %v\n", err)
-	}
-}
-
-func skillsByName(resolved []Skill) map[string]Skill {
-	byName := make(map[string]Skill, len(resolved))
-	for _, sk := range resolved {
-		byName[sk.Name] = sk
-	}
-	return byName
 }
 
 // writeOverrides merges `set` into skillOverrides and deletes `drop`, touching
@@ -417,4 +283,64 @@ func listingBudgetChars(settings map[string]any) int {
 		fraction = f
 	}
 	return int(fraction * contextWindowTokens * 4)
+}
+
+// decideExposure resolves the tier for every skill in `managed` and records it
+// in state.Exposure. It touches no tool's files, so a caller can decide first
+// and hand the tiers to the adapters.
+func decideExposure(cfg *Config, state *State, resolved []Skill, managed map[string]bool, now time.Time) map[string]string {
+	byName := skillsByName(resolved)
+	uses := usageBySkill()
+	desired := map[string]string{}
+	for name := range managed {
+		sk, ok := byName[name]
+		if !ok {
+			continue // installed earlier, gone from every source; uninstallUnwanted handles it
+		}
+		declared := declaredExposure(sk)
+		rec, seen := state.Exposure[name]
+		if rec.Declared != declared {
+			rec = ExposureRecord{Declared: declared, Since: now}
+			if !seen {
+				// First time we see this skill: keep the usage it already has.
+				if first := firstUse(uses[name]); !first.IsZero() && first.Before(now) {
+					rec.Since = first
+				}
+			}
+		}
+		rec.Written = effectiveOverride(cfg.Exposure, declared, rec.Since, uses[name], now)
+		desired[name] = rec.Written
+		state.Exposure[name] = rec
+	}
+	return desired
+}
+
+// applyExposure regenerates the hubs and writes Claude Code's skillOverrides.
+// Hubs are generated for every tool that copies skills, because a hidden skill
+// needs a listed router whatever is reading it; skillOverrides is Claude
+// Code's own file and is written only when Claude Code is a target (omp reads
+// its tier from the frontmatter the adapter wrote).
+func applyExposure(cfg *Config, state *State, resolved []Skill, desired map[string]string, now time.Time) {
+	syncHubs(cfg, state, skillsByName(resolved), desired, now)
+	var drop []string
+	for name := range state.Exposure {
+		if _, keep := desired[name]; !keep {
+			drop = append(drop, name)
+			delete(state.Exposure, name)
+		}
+	}
+	if !slices.Contains(cfg.Tools, "claude-code") {
+		return
+	}
+	if err := writeOverrides(desired, drop); err != nil {
+		fmt.Fprintf(os.Stderr, "skillsync: %v\n", err)
+	}
+}
+
+func skillsByName(resolved []Skill) map[string]Skill {
+	byName := make(map[string]Skill, len(resolved))
+	for _, sk := range resolved {
+		byName[sk.Name] = sk
+	}
+	return byName
 }
